@@ -59,7 +59,8 @@ Small single-purpose modules:
 | `sync` | Upload outbox entries; remove each only on confirmed success | `store`, fetch |
 | `cli` | `focus start <min>`, `focus sync`; renders the live clock line; handles the in-window stop key | all of the above |
 
-Local state lives in `%LOCALAPPDATA%\focus\`.
+Local state lives in `%USERPROFILE%\.focus\` (not `%LOCALAPPDATA%`, which Windows redirects for packaged
+apps, so tools launched from them would see a different copy).
 
 ### apps/web
 

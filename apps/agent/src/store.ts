@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Session } from "@focus/core";
 import { DEFAULT_BLOCKLIST, type Blocklist } from "./blocker.js";
@@ -14,8 +15,10 @@ export type Active = { pid: number; state: SessionState };
 
 export type Store = ReturnType<typeof createStore>;
 
+// Not %LOCALAPPDATA%: Windows redirects AppData writes from packaged apps (e.g. the Claude desktop app's
+// shell) into a private copy, so a normal terminal would see a different config.
 export function defaultDir(): string {
-  return join(process.env.LOCALAPPDATA ?? process.cwd(), "focus");
+  return join(homedir(), ".focus");
 }
 
 export function createStore(dir: string) {
