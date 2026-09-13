@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, QUALIFYING_MS } from "../src/index.js";
-import type { Session } from "../src/index.js";
+import { computeStats, QUALIFYING_MS } from "../src/index";
+import type { Session } from "../src/index";
 
 const MIN = 60_000;
 

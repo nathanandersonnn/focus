@@ -1,3 +1,3 @@
-export * from "./types.js";
-export { computeStats, QUALIFYING_MS } from "./stats.js";
-export { dayNumber } from "./dates.js";
+export * from "./types";
+export { computeStats, QUALIFYING_MS } from "./stats";
+export { dayNumber } from "./dates";

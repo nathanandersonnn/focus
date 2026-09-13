@@ -1,5 +1,5 @@
-import { dayNumber, isWeekday, mondayOf, nextWeekday, previousWeekday } from "./dates.js";
-import type { Session, Stats } from "./types.js";
+import { dayNumber, isWeekday, mondayOf, nextWeekday, previousWeekday } from "./dates";
+import type { Session, Stats } from "./types";
 
 const MINUTE_MS = 60_000;
 const RECENT_LIMIT = 10;
