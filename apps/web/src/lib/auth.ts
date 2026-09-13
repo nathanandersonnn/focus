@@ -1,38 +1,37 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 
 export const SESSION_COOKIE = "focus_session";
-export const STATE_COOKIE = "focus_oauth_state";
 export const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
+const SUBJECT = "owner";
 
-export type Viewer = { githubId: string; login: string };
-
-export function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
+export function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
-function secret(): Uint8Array {
-  return new TextEncoder().encode(requireEnv("SESSION_SECRET"));
+// Derived from the device key so the server needs only one secret; rotating the key signs you out.
+function signingKey(deviceKey: string): Uint8Array {
+  return createHash("sha256").update(`focus-session:${deviceKey}`).digest();
 }
 
-export async function createSessionToken(viewer: Viewer): Promise<string> {
-  return new SignJWT({ login: viewer.login })
+export async function createSessionToken(deviceKey: string): Promise<string> {
+  return new SignJWT({})
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(viewer.githubId)
+    .setSubject(SUBJECT)
     .setIssuedAt()
     .setExpirationTime(`${SESSION_MAX_AGE_S}s`)
-    .sign(secret());
+    .sign(signingKey(deviceKey));
 }
 
-export async function readViewer(token: string | undefined): Promise<Viewer | null> {
-  if (!token) return null;
+export async function isSignedIn(token: string | undefined, deviceKey: string | undefined): Promise<boolean> {
+  if (!token || !deviceKey) return false;
   try {
-    const { payload } = await jwtVerify(token, secret(), { algorithms: ["HS256"] });
-    if (payload.sub !== requireEnv("GITHUB_ALLOWED_USER_ID")) return null;
-    return { githubId: payload.sub, login: String(payload.login) };
+    const { payload } = await jwtVerify(token, signingKey(deviceKey), { algorithms: ["HS256"] });
+    return payload.sub === SUBJECT;
   } catch {
-    return null;
+    return false;
   }
 }
 

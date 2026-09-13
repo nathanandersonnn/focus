@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { computeStats } from "@focus/core";
@@ -232,12 +232,41 @@ async function sync(store: Store) {
   console.log(describeSync(await flush(store, config), store));
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+async function dashboard(store: Store) {
+  const config = store.loadConfig();
+  if (!config.dashboardUrl || !config.deviceKey) {
+    console.error(`Dashboard not set up yet. Add dashboardUrl and deviceKey to ${store.configPath}.`);
+    process.exit(1);
+  }
+  const action = new URL("/api/auth/device", config.dashboardUrl).toString();
+  // A POSTed form keeps the key out of the URL, browser history, and server logs.
+  const page = join(defaultDir(), "signin.html");
+  writeFileSync(
+    page,
+    `<!doctype html><meta charset="utf-8"><title>Signing in to Focus</title>` +
+      `<form id="f" method="post" action="${escapeHtml(action)}">` +
+      `<input type="hidden" name="key" value="${escapeHtml(config.deviceKey)}"></form>` +
+      `<script>document.getElementById("f").submit()</script>`,
+  );
+  spawn("cmd", ["/c", "start", "", page], { detached: true, stdio: "ignore" }).unref();
+  console.log("Opening your dashboard...");
+  await new Promise((r) => setTimeout(r, 15_000));
+  rmSync(page, { force: true });
+}
+
 const [command, arg] = process.argv.slice(2);
 const store = createStore(defaultDir());
 
 if (command === "start") await start(store, arg);
 else if (command === "sync") await sync(store);
+else if (command === "dashboard") await dashboard(store);
 else {
-  console.log("Usage:\n  focus start <minutes>   start a focus session\n  focus sync              upload any queued sessions");
+  console.log(
+    "Usage:\n  focus start <minutes>   start a focus session\n  focus sync              upload any queued sessions\n  focus dashboard         open the dashboard, signed in",
+  );
   process.exit(command ? 1 : 0);
 }

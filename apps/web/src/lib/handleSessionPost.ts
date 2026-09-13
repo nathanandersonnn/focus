@@ -1,17 +1,11 @@
-import { timingSafeEqual } from "node:crypto";
 import type { Session } from "@focus/core";
+import { safeEqual } from "./auth";
 import { sessionSchema } from "./sessionSchema";
 
 export type SessionPostDeps = {
   deviceKey: string | undefined;
   insert: (session: Session) => Promise<void>;
 };
-
-function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return ab.length === bb.length && timingSafeEqual(ab, bb);
-}
 
 export async function handleSessionPost(request: Request, deps: SessionPostDeps): Promise<Response> {
   if (!deps.deviceKey) {

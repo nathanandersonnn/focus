@@ -65,8 +65,11 @@ Local state lives in `%LOCALAPPDATA%\focus\`.
 
 - Next.js App Router on Vercel.
 - Postgres via Vercel's marketplace integration. One table.
-- Auth.js with the GitHub provider; sign-in callback allows only Nathan's GitHub account ID.
-- `POST /api/sessions` — authenticated by device key, not by login.
+- Sign-in from the PC: `focus dashboard` POSTs the device key to `/api/auth/device`, which sets a
+  30-day signed cookie. No third-party login, so the server holds one secret (`FOCUS_DEVICE_KEY`).
+  Trade-off accepted: sign-in only from the PC that has the agent. (Changed from GitHub OAuth,
+  2026-09-13, so setup needs no secrets copied between sites.)
+- `POST /api/sessions` — authenticated by the device key as a bearer token.
 - Dashboard page — server-rendered, calls `computeStats()` on stored sessions.
 
 ## Sessions
@@ -176,7 +179,7 @@ Nathan sets both himself during deployment.
 
 ## Dashboard
 
-Requires GitHub sign-in as Nathan. Shows, via `computeStats()`:
+Requires the sign-in cookie from `focus dashboard`. Shows, via `computeStats()`:
 
 - Focused hours: today, this week, all time. Total points.
 - Current weekday streak and best streak.

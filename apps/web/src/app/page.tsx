@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { computeStats, type Session } from "@focus/core";
-import { SESSION_COOKIE, readViewer } from "@/lib/auth";
+import { SESSION_COOKIE, isSignedIn } from "@/lib/auth";
 import { listSessions } from "@/lib/db";
 import styles from "./page.module.css";
 
@@ -30,11 +30,9 @@ function SignIn() {
     <main className={styles.signin}>
       <h1 className={styles.title}>Focus</h1>
       <p className={styles.reason}>Private dashboard.</p>
-      <div>
-        <a className={styles.signinButton} href="/api/auth/login">
-          Sign in with GitHub
-        </a>
-      </div>
+      <p>
+        To sign in, run <code className={styles.num}>focus dashboard</code> on your PC.
+      </p>
     </main>
   );
 }
@@ -75,8 +73,8 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
 }
 
 export default async function Home() {
-  const viewer = await readViewer((await cookies()).get(SESSION_COOKIE)?.value);
-  if (!viewer) return <SignIn />;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!(await isSignedIn(token, process.env.FOCUS_DEVICE_KEY))) return <SignIn />;
 
   const sessions = await listSessions();
   const stats = computeStats(sessions, todayIn(process.env.FOCUS_TIMEZONE ?? "America/Los_Angeles"));
@@ -86,7 +84,6 @@ export default async function Home() {
       <header className={styles.header}>
         <h1 className={styles.title}>Focus</h1>
         <div className={styles.who}>
-          <span>@{viewer.login}</span>
           <form action="/api/auth/logout" method="post">
             <button className={styles.linkButton} type="submit">
               Sign out
