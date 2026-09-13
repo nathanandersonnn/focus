@@ -3,6 +3,7 @@ import { computeStats, type Session } from "@focus/core";
 import { SESSION_COOKIE, isSignedIn } from "@/lib/auth";
 import { listSessions } from "@/lib/db";
 import styles from "./page.module.css";
+import { WeekChart } from "./WeekChart";
 
 function todayIn(timeZone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
@@ -62,7 +63,7 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
                 <span className={s.outcome === "completed" ? styles.completed : styles.abandoned}>
                   {s.outcome}
                 </span>
-                {s.reason && <div className={styles.reason}>“{s.reason}”</div>}
+                {s.reason && <div className={styles.reason}>&ldquo;{s.reason}&rdquo;</div>}
               </td>
             </tr>
           ))}
@@ -77,7 +78,8 @@ export default async function Home() {
   if (!(await isSignedIn(token, process.env.FOCUS_DEVICE_KEY))) return <SignIn />;
 
   const sessions = await listSessions();
-  const stats = computeStats(sessions, todayIn(process.env.FOCUS_TIMEZONE ?? "America/Los_Angeles"));
+  const today = todayIn(process.env.FOCUS_TIMEZONE ?? "America/Los_Angeles");
+  const stats = computeStats(sessions, today);
 
   return (
     <main className={styles.page}>
@@ -112,6 +114,9 @@ export default async function Home() {
           <div className={styles.statNote}>{stats.points.toLocaleString()} points</div>
         </div>
       </section>
+
+      <h2 className={styles.sectionTitle}>This week</h2>
+      <WeekChart week={stats.week} today={today} />
 
       <div className={styles.columns}>
         <section>

@@ -26,6 +26,10 @@ export function nextWeekday(day: number): number {
   return d;
 }
 
+export function toLocalDate(day: number): string {
+  return new Date(day * DAY_MS).toISOString().slice(0, 10);
+}
+
 export function mondayOf(day: number): number {
   return day - ((weekdayOf(day) + 6) % 7);
 }

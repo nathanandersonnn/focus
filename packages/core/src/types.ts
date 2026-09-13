@@ -17,7 +17,14 @@ export type Session = {
   blocks: Block[];
 };
 
+export type DayTotal = {
+  localDate: string;
+  focusedMs: number;
+  qualified: boolean;
+};
+
 export type Stats = {
+  week: DayTotal[];
   todayFocusedMs: number;
   weekFocusedMs: number;
   totalFocusedMs: number;

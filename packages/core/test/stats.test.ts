@@ -76,6 +76,37 @@ describe("time totals", () => {
   });
 });
 
+describe("week", () => {
+  it("returns Monday through Sunday of today's week with per-day focused time", () => {
+    const stats = computeStats(
+      [
+        session(PREV_FRI),
+        session(TUE, { focusedMs: 30 * MIN }),
+        session(TUE, { outcome: "abandoned", reason: "x", focusedMs: 10 * MIN }),
+        session(SAT, { focusedMs: 20 * MIN }),
+      ],
+      WED,
+    );
+    expect(stats.week.map((d) => d.localDate)).toEqual([MON, TUE, WED, THU, FRI, SAT, SUN]);
+    expect(stats.week.map((d) => d.focusedMs)).toEqual([0, 40 * MIN, 0, 0, 0, 20 * MIN, 0]);
+  });
+
+  it("marks weekdays that count toward the streak", () => {
+    const stats = computeStats(
+      [session(MON), session(TUE, { focusedMs: QUALIFYING_MS - 1 }), session(SAT)],
+      SUN,
+    );
+    expect(stats.week.map((d) => d.qualified)).toEqual([true, false, false, false, false, false, false]);
+  });
+
+  it("works across a month boundary", () => {
+    const stats = computeStats([session("2026-10-01")], "2026-10-01");
+    expect(stats.week[0]?.localDate).toBe("2026-09-28");
+    expect(stats.week[6]?.localDate).toBe("2026-10-04");
+    expect(stats.week[3]?.focusedMs).toBe(60 * MIN);
+  });
+});
+
 describe("streaks", () => {
   it("counts consecutive qualifying weekdays", () => {
     const stats = computeStats([session(MON), session(TUE), session(WED)], WED);

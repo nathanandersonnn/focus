@@ -1,4 +1,4 @@
-import { dayNumber, isWeekday, mondayOf, nextWeekday, previousWeekday } from "./dates";
+import { dayNumber, isWeekday, mondayOf, nextWeekday, previousWeekday, toLocalDate } from "./dates";
 import type { Session, Stats } from "./types";
 
 const MINUTE_MS = 60_000;
@@ -16,12 +16,16 @@ export function computeStats(sessions: Session[], today: string): Stats {
   let points = 0;
   const qualifyingDays = new Set<number>();
   const blockCounts = new Map<string, number>();
+  const weekMs = [0, 0, 0, 0, 0, 0, 0];
 
   for (const s of sessions) {
     const day = dayNumber(s.localDate);
     totalFocusedMs += s.focusedMs;
     if (day === todayDay) todayFocusedMs += s.focusedMs;
-    if (day >= weekStart && day < weekStart + 7) weekFocusedMs += s.focusedMs;
+    if (day >= weekStart && day < weekStart + 7) {
+      weekFocusedMs += s.focusedMs;
+      weekMs[day - weekStart]! += s.focusedMs;
+    }
 
     if (s.outcome === "completed") {
       points += Math.floor(s.focusedMs / MINUTE_MS);
@@ -32,6 +36,11 @@ export function computeStats(sessions: Session[], today: string): Stats {
   }
 
   return {
+    week: weekMs.map((focusedMs, i) => ({
+      localDate: toLocalDate(weekStart + i),
+      focusedMs,
+      qualified: qualifyingDays.has(weekStart + i),
+    })),
     todayFocusedMs,
     weekFocusedMs,
     totalFocusedMs,
