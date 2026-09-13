@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "focus",
   "private": true,
   "type": "module",
@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p apps/agent"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
