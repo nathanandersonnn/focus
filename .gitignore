@@ -5,3 +5,7 @@
 .next/
 dist/
 coverage/
+
+.claude/
+.agents/
+skills-lock.json

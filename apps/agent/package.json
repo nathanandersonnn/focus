@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "focus": "bin/focus.cmd"
+    "focus": "bin/focus.mjs"
   },
   "scripts": {
     "focus": "tsx src/cli.ts"
