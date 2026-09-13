@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { computeStats } from "@focus/core";
@@ -57,9 +59,9 @@ function log(message: string) {
   process.stdout.write(`\r${" ".repeat(width())}\r${message}\n`);
 }
 
-function openNeetCode() {
+function openInBrowser(url: string) {
   const chrome = CHROME_PATHS.find((p) => existsSync(p));
-  const [cmd, args] = chrome ? [chrome, [NEETCODE_URL]] : ["cmd", ["/c", "start", "", NEETCODE_URL]];
+  const [cmd, args] = chrome ? [chrome, [url]] : ["cmd", ["/c", "start", "", url]];
   spawn(cmd, args, { detached: true, stdio: "ignore" }).unref();
 }
 
@@ -195,7 +197,7 @@ async function start(store: Store, rawMinutes: string | undefined) {
 
   let state = startSession({ id: randomUUID(), localDate: localDate(), plannedMin: minutes, now: Date.now() });
   store.saveActive({ pid: process.pid, state });
-  openNeetCode();
+  openInBrowser(NEETCODE_URL);
 
   console.log("");
   console.log(`  Focus: ${minutes} min. Blocking ${Object.keys(config.blocklist).join(", ")}.`);
@@ -244,18 +246,30 @@ async function dashboard(store: Store) {
   }
   const action = new URL("/api/auth/device", config.dashboardUrl).toString();
   // A POSTed form keeps the key out of the URL, browser history, and server logs.
-  const page = join(defaultDir(), "signin.html");
-  writeFileSync(
-    page,
+  const page =
     `<!doctype html><meta charset="utf-8"><title>Signing in to Focus</title>` +
-      `<form id="f" method="post" action="${escapeHtml(action)}">` +
-      `<input type="hidden" name="key" value="${escapeHtml(config.deviceKey)}"></form>` +
-      `<script>document.getElementById("f").submit()</script>`,
-  );
-  spawn("cmd", ["/c", "start", "", page], { detached: true, stdio: "ignore" }).unref();
+    `<form id="f" method="post" action="${escapeHtml(action)}">` +
+    `<input type="hidden" name="key" value="${escapeHtml(config.deviceKey)}"></form>` +
+    `<script>document.getElementById("f").submit()</script>`;
+
+  // Served over loopback rather than as a .html file, which Windows may open in an editor.
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    res.end(page);
+    server.close();
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+
+  openInBrowser(`http://127.0.0.1:${port}/`);
   console.log("Opening your dashboard...");
-  await new Promise((r) => setTimeout(r, 15_000));
-  rmSync(page, { force: true });
+  const timeout = setTimeout(() => {
+    console.error("The browser never loaded the sign-in page. Is Chrome or a default browser installed?");
+    server.close();
+    process.exit(1);
+  }, 60_000);
+  await new Promise((resolve) => server.on("close", resolve));
+  clearTimeout(timeout);
 }
 
 const [command, arg] = process.argv.slice(2);
