@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IDLE_MS,
   abandon,
+  finish,
   recordBlocks,
   recoverStale,
   startSession,
@@ -116,6 +117,43 @@ describe("ending early", () => {
     expect(s.reason).toBe("agent closed");
     expect(s.endedAt).toBe(T0 + 15 * MIN);
     expect(s.focusedMs).toBe(15 * MIN);
+  });
+});
+
+describe("open-ended sessions", () => {
+  const open = () => startSession({ id: "abc", localDate: "2026-09-14", plannedMin: null, now: T0 });
+
+  it("keeps running past any length", () => {
+    const s = tick(open(), T0 + 900 * MIN, T0 + 900 * MIN);
+    expect(s.status).toBe("running");
+    expect(s.focusedMs).toBe(900 * MIN);
+  });
+
+  it("still pauses on idle", () => {
+    const s = tick(open(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
+    expect(s.status).toBe("paused");
+    expect(s.focusedMs).toBe(2 * MIN);
+  });
+
+  it("finishes as completed with all focused time", () => {
+    let s = tick(open(), T0 + 40 * MIN, T0 + 40 * MIN);
+    s = finish(s, T0 + 40 * MIN);
+    expect(s.status).toBe("completed");
+    expect(s.focusedMs).toBe(40 * MIN);
+    expect(s.endedAt).toBe(T0 + 40 * MIN);
+    expect(toSession(s)).toMatchObject({ plannedMin: null, outcome: "completed" });
+  });
+
+  it("closes an open pause when finishing", () => {
+    let s = tick(open(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
+    s = finish(s, T0 + 30 * MIN);
+    expect(s.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 30 * MIN }]);
+    expect(s.focusedMs).toBe(2 * MIN);
+  });
+
+  it("does not cap abandoned time", () => {
+    const s = abandon(tick(open(), T0 + 700 * MIN, T0 + 700 * MIN), T0 + 700 * MIN, "agent closed");
+    expect(s.focusedMs).toBe(700 * MIN);
   });
 });
 

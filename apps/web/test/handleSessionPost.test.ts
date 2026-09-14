@@ -68,6 +68,13 @@ describe("POST /api/sessions", () => {
     expect(db.rows.size).toBe(0);
   });
 
+  it("accepts open-ended sessions with no planned length", async () => {
+    const db = memoryDb();
+    const res = await handleSessionPost(post({ ...valid, plannedMin: null }), { deviceKey: KEY, insert: db.insert });
+    expect(res.status).toBe(200);
+    expect(db.rows.get(valid.id)?.plannedMin).toBeNull();
+  });
+
   it("requires a reason for abandoned sessions", async () => {
     const db = memoryDb();
     const deps = { deviceKey: KEY, insert: db.insert };

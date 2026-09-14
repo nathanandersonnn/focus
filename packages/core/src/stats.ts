@@ -4,7 +4,7 @@ import type { Session, Stats } from "./types";
 const MINUTE_MS = 60_000;
 const RECENT_LIMIT = 10;
 
-export const QUALIFYING_MS = 25 * MINUTE_MS;
+export const QUALIFYING_MS = 15 * MINUTE_MS;
 
 export function computeStats(sessions: Session[], today: string): Stats {
   const todayDay = dayNumber(today);

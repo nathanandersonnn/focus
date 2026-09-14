@@ -9,7 +9,7 @@ export type Session = {
   localDate: string;
   startedAt: string;
   endedAt: string;
-  plannedMin: number;
+  plannedMin: number | null;
   focusedMs: number;
   outcome: Outcome;
   reason?: string;

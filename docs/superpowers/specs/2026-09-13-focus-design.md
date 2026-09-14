@@ -57,7 +57,7 @@ Small single-purpose modules:
 | `session` | State machine (below). Pure: takes injected clock and last-input time | `core` |
 | `store` | Local JSON: the active session (rewritten every 5 s), the upload outbox, config (blocklist, dashboard URL, device key) | fs |
 | `sync` | Upload outbox entries; remove each only on confirmed success | `store`, fetch |
-| `cli` | `focus start <min>`, `focus sync`; renders the live clock line; handles the in-window stop key | all of the above |
+| `cli` | `focus start [min]`, `focus dashboard`, `focus sync`; renders the live clock line; handles the in-window stop key | all of the above |
 
 Local state lives in `%USERPROFILE%\.focus\` (not `%LOCALAPPDATA%`, which Windows redirects for packaged
 apps, so tools launched from them would see a different copy).
@@ -78,7 +78,8 @@ apps, so tools launched from them would see a different copy).
 ### Starting
 
 `focus start 60` begins a session with a target of **60 focused minutes**. Paused time does not count
-toward the target, so wall-clock duration can exceed it. Starting also opens
+toward the target, so wall-clock duration can exceed it. `focus start` with no minutes runs open-ended:
+the clock counts up and pressing `s` finishes it as `completed` (no reason prompt). Starting also opens
 `https://neetcode.io/practice` in Chrome, falling back to the default browser if Chrome is absent.
 
 Starting is refused if a session is already running (lock file with PID in the state directory).
@@ -100,7 +101,7 @@ Starting is refused if a session is already running (lock file with PID in the s
 
 | Outcome | Trigger | Time tracked | Points | Streak |
 |---|---|---|---|---|
-| `completed` | Focused time reaches the target | yes | 1 per focused minute | qualifies if focused ≥ 25 min |
+| `completed` | Focused time reaches the target, or `s` in an open-ended session | yes | 1 per focused minute | qualifies if focused ≥ 15 min |
 | `abandoned` | In the session window, press `s` or Ctrl+C, then type a reason; ends immediately | yes | 0 | no |
 | `abandoned` | Session window closed, agent killed, or PC shut down | yes | 0 | no |
 
@@ -129,7 +130,7 @@ executable names, so no process-tree killing is needed. The blocklist lives in t
 ## Scoring (implemented once, in `computeStats`)
 
 - **Points:** completed sessions earn 1 point per whole focused minute. Abandoned sessions earn 0.
-- **Qualifying session:** `completed` with focused time ≥ 25 minutes.
+- **Qualifying session:** `completed` with focused time ≥ 15 minutes.
 - **Streak:** consecutive **weekdays** (Mon–Fri), counting back from today, each with at least one
   qualifying session. Saturdays and Sundays are skipped: they neither break nor extend a streak.
   If today is a weekday with no qualifying session yet, the streak is still counted through the
@@ -147,7 +148,7 @@ type Session = {
   localDate: string;        // "YYYY-MM-DD", agent local time at start
   startedAt: string;        // ISO 8601
   endedAt: string;          // ISO 8601
-  plannedMin: number;
+  plannedMin: number | null; // null = open-ended
   focusedMs: number;
   outcome: "completed" | "abandoned";
   reason?: string;          // required when abandoned
@@ -203,7 +204,7 @@ Requires the sign-in cookie from `focus dashboard`. Shows, via `computeStats()`:
 
 ## Testing
 
-- **`computeStats`** — most coverage: weekend skip, missed weekday breaks streak, 25-minute threshold,
+- **`computeStats`** — most coverage: weekend skip, missed weekday breaks streak, 15-minute threshold,
   abandoned earns nothing, today-without-session-yet, best streak, midnight-crossing session stays on
   its `localDate`.
 - **`session` state machine** — fake clock and fake last-input source: idle pause at 5 minutes,

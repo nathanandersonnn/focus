@@ -6,7 +6,7 @@ type Row = {
   local_date: string;
   started_at: string | Date;
   ended_at: string | Date;
-  planned_min: number;
+  planned_min: number | null;
   focused_ms: string | number;
   outcome: Session["outcome"];
   reason: string | null;
@@ -22,21 +22,28 @@ function sql() {
 
 let tableReady: Promise<unknown> | undefined;
 
-function ensureTable(): Promise<unknown> {
-  tableReady ??= sql()`
+async function createOrMigrate(): Promise<void> {
+  const db = sql();
+  await db`
     CREATE TABLE IF NOT EXISTS sessions (
       id          text PRIMARY KEY,
       local_date  text        NOT NULL,
       started_at  timestamptz NOT NULL,
       ended_at    timestamptz NOT NULL,
-      planned_min integer     NOT NULL,
+      planned_min integer,
       focused_ms  bigint      NOT NULL,
       outcome     text        NOT NULL,
       reason      text,
       pauses      jsonb       NOT NULL,
       blocks      jsonb       NOT NULL,
       received_at timestamptz NOT NULL DEFAULT now()
-    )`.catch((err: unknown) => {
+    )`;
+  // Tables created before open-ended sessions had planned_min NOT NULL. Idempotent.
+  await db`ALTER TABLE sessions ALTER COLUMN planned_min DROP NOT NULL`;
+}
+
+function ensureTable(): Promise<unknown> {
+  tableReady ??= createOrMigrate().catch((err: unknown) => {
     tableReady = undefined;
     throw err;
   });

@@ -9,6 +9,7 @@ import { computeStats } from "@focus/core";
 import { sweep } from "./blocker.js";
 import {
   abandon,
+  finish,
   isEnded,
   recordBlocks,
   recoverStale,
@@ -85,15 +86,18 @@ function describeSync(result: SyncResult, store: Store): string {
 }
 
 function renderLine(state: SessionState): string {
-  const remaining = state.plannedMin * 60_000 - state.focusedMs;
-  const parts = [`  [ FOCUS ]  ${fmt(remaining)} left`];
+  const clock =
+    state.plannedMin === null
+      ? `${fmt(state.focusedMs)} focused`
+      : `${fmt(state.plannedMin * 60_000 - state.focusedMs)} left`;
+  const parts = [`  [ FOCUS ]  ${clock}`];
   if (state.status === "paused") parts.push("PAUSED (idle)");
   const counts = new Map<string, number>();
   for (const b of state.blocks) counts.set(b.app, (counts.get(b.app) ?? 0) + 1);
   if (counts.size > 0) {
     parts.push(`blocked: ${[...counts].map(([app, n]) => `${app} x${n}`).join(", ")}`);
   }
-  parts.push("s = stop");
+  parts.push(state.plannedMin === null ? "s = finish" : "s = stop");
   return parts.join("   |   ");
 }
 
@@ -143,6 +147,7 @@ function runSession(store: Store, config: Config, initial: SessionState): Promis
 
     async function onKey(key: string) {
       if (prompting || (key !== "s" && key !== "S" && key !== "\u0003")) return;
+      if (state.plannedMin === null) return end(finish(state, Date.now()));
       prompting = true;
       stdin.off("data", onKey);
       stdin.setRawMode(false);
@@ -179,9 +184,9 @@ function runSession(store: Store, config: Config, initial: SessionState): Promis
 }
 
 async function start(store: Store, rawMinutes: string | undefined) {
-  const minutes = Number(rawMinutes);
-  if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES) {
-    console.error(`Usage: focus start <minutes>   (whole minutes, 1-${MAX_MINUTES})`);
+  const minutes = rawMinutes === undefined ? null : Number(rawMinutes);
+  if (minutes !== null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) {
+    console.error(`Usage: focus start [minutes]   (whole minutes, 1-${MAX_MINUTES}; leave out to run until you press s)`);
     process.exit(1);
   }
 
@@ -200,7 +205,8 @@ async function start(store: Store, rawMinutes: string | undefined) {
   openInBrowser(NEETCODE_URL);
 
   console.log("");
-  console.log(`  Focus: ${minutes} min. Blocking ${Object.keys(config.blocklist).join(", ")}.`);
+  const length = minutes === null ? "no time limit, press s when you're done" : `${minutes} min`;
+  console.log(`  Focus: ${length}. Blocking ${Object.keys(config.blocklist).join(", ")}.`);
   console.log(`  Opened ${NEETCODE_URL}. Idle for 5 min pauses the clock.`);
   console.log("");
 
@@ -280,7 +286,7 @@ else if (command === "sync") await sync(store);
 else if (command === "dashboard") await dashboard(store);
 else {
   console.log(
-    "Usage:\n  focus start <minutes>   start a focus session\n  focus sync              upload any queued sessions\n  focus dashboard         open the dashboard, signed in",
+    "Usage:\n  focus start [minutes]   start a focus session (no minutes = run until you press s)\n  focus sync              upload any queued sessions\n  focus dashboard         open the dashboard, signed in",
   );
   process.exit(command ? 1 : 0);
 }

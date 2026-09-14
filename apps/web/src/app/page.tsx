@@ -57,7 +57,8 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
             <tr key={s.id}>
               <td className={styles.num}>{shortDate(s.localDate)}</td>
               <td className={styles.num}>
-                {hm(s.focusedMs)} / {s.plannedMin}m
+                {hm(s.focusedMs)}
+                {s.plannedMin !== null && ` / ${s.plannedMin}m`}
               </td>
               <td>
                 <span className={s.outcome === "completed" ? styles.completed : styles.abandoned}>

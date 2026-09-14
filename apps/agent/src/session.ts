@@ -7,7 +7,7 @@ export type Status = "running" | "paused" | "completed" | "abandoned";
 export type SessionState = {
   id: string;
   localDate: string;
-  plannedMin: number;
+  plannedMin: number | null;
   startedAt: number;
   status: Status;
   focusedMs: number;
@@ -23,7 +23,7 @@ export type BlockResult = { app: string; killed: boolean };
 export function startSession(opts: {
   id: string;
   localDate: string;
-  plannedMin: number;
+  plannedMin: number | null;
   now: number;
 }): SessionState {
   return {
@@ -64,7 +64,7 @@ export function tick(state: SessionState, now: number, lastInputAt: number): Ses
     s.status = "paused";
   }
 
-  const plannedMs = s.plannedMin * 60_000;
+  const plannedMs = plannedMsOf(s);
   const focused = focusedAt(s, now);
   if (focused >= plannedMs) {
     s.status = "completed";
@@ -77,18 +77,24 @@ export function tick(state: SessionState, now: number, lastInputAt: number): Ses
   return s;
 }
 
-export function abandon(state: SessionState, now: number, reason: string): SessionState {
-  if (isEnded(state)) return state;
+function plannedMsOf(state: SessionState): number {
+  return state.plannedMin === null ? Infinity : state.plannedMin * 60_000;
+}
+
+function endAt(state: SessionState, now: number): SessionState {
   const pauses = state.pauses.map((p) => (p.to === undefined ? { ...p, to: now } : { ...p }));
   const s: SessionState = { ...state, pauses };
-  return {
-    ...s,
-    status: "abandoned",
-    focusedMs: Math.min(focusedAt(s, now), s.plannedMin * 60_000),
-    endedAt: now,
-    lastTickAt: now,
-    reason,
-  };
+  return { ...s, focusedMs: Math.min(focusedAt(s, now), plannedMsOf(s)), endedAt: now, lastTickAt: now };
+}
+
+export function abandon(state: SessionState, now: number, reason: string): SessionState {
+  if (isEnded(state)) return state;
+  return { ...endAt(state, now), status: "abandoned", reason };
+}
+
+export function finish(state: SessionState, now: number): SessionState {
+  if (isEnded(state)) return state;
+  return { ...endAt(state, now), status: "completed" };
 }
 
 export function recoverStale(state: SessionState): SessionState {

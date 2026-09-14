@@ -8,7 +8,7 @@ export const sessionSchema = z
     localDate: z.iso.date(),
     startedAt: timestamp,
     endedAt: timestamp,
-    plannedMin: z.number().int().min(1).max(600),
+    plannedMin: z.number().int().min(1).max(600).nullable(),
     focusedMs: z.number().int().min(0),
     outcome: z.enum(["completed", "abandoned"]),
     reason: z.string().min(1).max(500).optional(),
