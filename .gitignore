@@ -9,3 +9,4 @@ coverage/
 .claude/
 .agents/
 skills-lock.json
+scripts/

@@ -10,6 +10,9 @@ Claude Code orchestrates. Two helpers are available from any shell:
 Both read the prompt on stdin and print the answer on stdout. Exit codes: 2 empty prompt, 3 timeout
 (180s, `ASK_TIMEOUT` overrides), 4 empty/failed response, 5 setup failure.
 
+`scripts/` is untracked local tooling, not part of the repo: the wrappers hardcode this machine's
+LM Studio port and `agy` install. A fresh clone will not have them, so skip delegation there.
+
 Measured on this machine (RTX 5080 16 GB), 2026-09-14:
 - Qwen: 28 tok/s decode, 0.2–0.75s TTFT on a short prompt; ~21K-token prompt answered in 23s.
   14.3 GB VRAM at a 24576-token context, no spill. Thinking is disabled (`reasoning_effort: none`).
