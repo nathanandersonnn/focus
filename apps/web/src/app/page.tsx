@@ -64,6 +64,7 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
                 <span className={s.outcome === "completed" ? styles.completed : styles.abandoned}>
                   {s.outcome}
                 </span>
+                {s.deep && <span className={styles.deepTag}>deep</span>}
                 {s.reason && <div className={styles.reason}>&ldquo;{s.reason}&rdquo;</div>}
               </td>
             </tr>

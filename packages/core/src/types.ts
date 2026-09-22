@@ -12,6 +12,7 @@ export type Session = {
   plannedMin: number | null;
   focusedMs: number;
   outcome: Outcome;
+  deep: boolean;
   reason?: string;
   pauses: Pause[];
   blocks: Block[];

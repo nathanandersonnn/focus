@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { computeStats } from "@focus/core";
+import { DEEP_MULTIPLIER, computeStats } from "@focus/core";
 import { sweep } from "./blocker.js";
 import {
   abandon,
@@ -97,7 +97,8 @@ function renderLine(state: SessionState): string {
   if (counts.size > 0) {
     parts.push(`blocked: ${[...counts].map(([app, n]) => `${app} x${n}`).join(", ")}`);
   }
-  parts.push(state.plannedMin === null ? "s = finish" : "s = stop");
+  if (state.deep) parts.push("DEEP - no early exit");
+  else parts.push(state.plannedMin === null ? "s = finish" : "s = stop");
   return parts.join("   |   ");
 }
 
@@ -147,6 +148,10 @@ function runSession(store: Store, config: Config, initial: SessionState): Promis
 
     async function onKey(key: string) {
       if (prompting || (key !== "s" && key !== "S" && key !== "\u0003")) return;
+      if (state.deep) {
+        log("  Deep focus has no early exit. Sit with it.");
+        return;
+      }
       if (state.plannedMin === null) return end(finish(state, Date.now()));
       prompting = true;
       stdin.off("data", onKey);
@@ -183,10 +188,15 @@ function runSession(store: Store, config: Config, initial: SessionState): Promis
   });
 }
 
-async function start(store: Store, rawMinutes: string | undefined) {
+async function start(store: Store, rawMinutes: string | undefined, deep = false) {
+  if (deep && rawMinutes === undefined) {
+    console.error("Deep focus needs a length, because it has no early exit: focus deep 45");
+    process.exit(1);
+  }
   const minutes = rawMinutes === undefined ? null : Number(rawMinutes);
   if (minutes !== null && (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_MINUTES)) {
-    console.error(`Usage: focus start [minutes]   (whole minutes, 1-${MAX_MINUTES}; leave out to run until you press s)`);
+    const cmd = deep ? "focus deep <minutes>" : "focus start [minutes]";
+    console.error(`Usage: ${cmd}   (whole minutes, 1-${MAX_MINUTES}${deep ? "" : "; leave out to run until you press s"})`);
     process.exit(1);
   }
 
@@ -200,14 +210,19 @@ async function start(store: Store, rawMinutes: string | undefined) {
   const pre = await flush(store, config);
   if (pre.kind === "done" && pre.unauthorized) console.log(`  ${describeSync(pre, store)}`);
 
-  let state = startSession({ id: randomUUID(), localDate: localDate(), plannedMin: minutes, now: Date.now() });
+  let state = startSession({ id: randomUUID(), localDate: localDate(), plannedMin: minutes, deep, now: Date.now() });
   store.saveActive({ pid: process.pid, state });
   openInBrowser(NEETCODE_URL);
 
   console.log("");
   const length = minutes === null ? "no time limit, press s when you're done" : `${minutes} min`;
-  console.log(`  Focus: ${length}. Blocking ${Object.keys(config.blocklist).join(", ")}.`);
-  console.log(`  Opened ${NEETCODE_URL}. Idle for 5 min pauses the clock.`);
+  const mode = deep ? "Deep focus" : "Focus";
+  console.log(`  ${mode}: ${length}. Blocking ${Object.keys(config.blocklist).join(", ")}.`);
+  const idleNote = deep ? "Idle for 2 min pauses the clock" : "Idle for 5 min pauses the clock";
+  console.log(`  Opened ${NEETCODE_URL}. ${idleNote}.`);
+  if (deep) {
+    console.log(`  No early exit: points are ${DEEP_MULTIPLIER}x, and closing this window abandons the session.`);
+  }
   console.log("");
 
   state = await runSession(store, config, state);
@@ -282,11 +297,12 @@ const [command, arg] = process.argv.slice(2);
 const store = createStore(defaultDir());
 
 if (command === "start") await start(store, arg);
+else if (command === "deep") await start(store, arg, true);
 else if (command === "sync") await sync(store);
 else if (command === "dashboard") await dashboard(store);
 else {
   console.log(
-    "Usage:\n  focus start [minutes]   start a focus session (no minutes = run until you press s)\n  focus sync              upload any queued sessions\n  focus dashboard         open the dashboard, signed in",
+    "Usage:\n  focus start [minutes]   start a focus session (no minutes = run until you press s)\n  focus deep <minutes>    deep focus: no early exit, pauses after 2 min idle, 2x points\n  focus sync              upload any queued sessions\n  focus dashboard         open the dashboard, signed in",
   );
   process.exit(command ? 1 : 0);
 }

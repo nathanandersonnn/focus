@@ -16,6 +16,7 @@ function session(id: string): Session {
     plannedMin: 60,
     focusedMs: 3_600_000,
     outcome: "completed",
+    deep: false,
     pauses: [],
     blocks: [],
   };

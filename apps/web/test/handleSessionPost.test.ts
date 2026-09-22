@@ -12,6 +12,7 @@ const valid: Session = {
   plannedMin: 60,
   focusedMs: 3_600_000,
   outcome: "completed",
+  deep: false,
   pauses: [{ from: "2026-09-14T17:10:00.000Z", to: "2026-09-14T17:12:00.000Z" }],
   blocks: [{ app: "Steam", at: "2026-09-14T17:05:00.000Z", killed: true }],
 };
@@ -73,6 +74,18 @@ describe("POST /api/sessions", () => {
     const res = await handleSessionPost(post({ ...valid, plannedMin: null }), { deviceKey: KEY, insert: db.insert });
     expect(res.status).toBe(200);
     expect(db.rows.get(valid.id)?.plannedMin).toBeNull();
+  });
+
+  it("stores deep sessions and defaults the flag when it is missing", async () => {
+    const db = memoryDb();
+    const deps = { deviceKey: KEY, insert: db.insert };
+    expect((await handleSessionPost(post({ ...valid, deep: true }), deps)).status).toBe(200);
+    expect(db.rows.get(valid.id)?.deep).toBe(true);
+
+    const { deep: _omitted, ...withoutFlag } = valid;
+    const older = { ...withoutFlag, id: "8d0b2a44-0f2e-4a2c-9a7f-1c2b3d4e5f60" };
+    expect((await handleSessionPost(post(older), deps)).status).toBe(200);
+    expect(db.rows.get(older.id)?.deep).toBe(false);
   });
 
   it("requires a reason for abandoned sessions", async () => {

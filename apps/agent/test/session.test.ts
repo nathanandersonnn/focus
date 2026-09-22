@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEEP_IDLE_MS,
   IDLE_MS,
   abandon,
   finish,
@@ -157,6 +158,34 @@ describe("open-ended sessions", () => {
   });
 });
 
+describe("deep sessions", () => {
+  const deep = (plannedMin: number | null = 60) =>
+    startSession({ id: "abc", localDate: "2026-09-14", plannedMin, deep: true, now: T0 });
+
+  it("pauses after 2 minutes idle instead of 5", () => {
+    const lastInput = T0 + 3 * MIN;
+    expect(tick(deep(), lastInput + DEEP_IDLE_MS - 1, lastInput).status).toBe("running");
+    const paused = tick(deep(), lastInput + DEEP_IDLE_MS, lastInput);
+    expect(paused.status).toBe("paused");
+    expect(paused.focusedMs).toBe(3 * MIN);
+  });
+
+  it("still uses the 5 minute rule for normal sessions", () => {
+    const lastInput = T0 + 3 * MIN;
+    expect(tick(fresh(), lastInput + DEEP_IDLE_MS, lastInput).status).toBe("running");
+  });
+
+  it("carries the deep flag through to the exported session", () => {
+    const s = tick(deep(30), T0 + 30 * MIN, T0 + 30 * MIN);
+    expect(toSession(s)).toMatchObject({ deep: true, outcome: "completed" });
+  });
+
+  it("marks normal sessions as not deep", () => {
+    const s = tick(fresh(30), T0 + 30 * MIN, T0 + 30 * MIN);
+    expect(toSession(s).deep).toBe(false);
+  });
+});
+
 describe("blocks and export", () => {
   it("records one block per app per tick", () => {
     const s = recordBlocks(fresh(), T0 + MIN, [
@@ -180,6 +209,7 @@ describe("blocks and export", () => {
       plannedMin: 30,
       focusedMs: 30 * MIN,
       outcome: "completed",
+      deep: false,
       pauses: [],
       blocks: [{ app: "Steam", at: "2026-09-14T10:01:00.000Z", killed: true }],
     });

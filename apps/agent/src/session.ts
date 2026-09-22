@@ -1,6 +1,7 @@
 import type { Session } from "@focus/core";
 
 export const IDLE_MS = 5 * 60_000;
+export const DEEP_IDLE_MS = 2 * 60_000;
 
 export type Status = "running" | "paused" | "completed" | "abandoned";
 
@@ -8,6 +9,7 @@ export type SessionState = {
   id: string;
   localDate: string;
   plannedMin: number | null;
+  deep: boolean;
   startedAt: number;
   status: Status;
   focusedMs: number;
@@ -24,12 +26,14 @@ export function startSession(opts: {
   id: string;
   localDate: string;
   plannedMin: number | null;
+  deep?: boolean;
   now: number;
 }): SessionState {
   return {
     id: opts.id,
     localDate: opts.localDate,
     plannedMin: opts.plannedMin,
+    deep: opts.deep ?? false,
     startedAt: opts.now,
     status: "running",
     focusedMs: 0,
@@ -58,7 +62,7 @@ export function tick(state: SessionState, now: number, lastInputAt: number): Ses
     s.status = "running";
   }
 
-  if (s.status === "running" && now - lastInputAt >= IDLE_MS) {
+  if (s.status === "running" && now - lastInputAt >= (s.deep ? DEEP_IDLE_MS : IDLE_MS)) {
     const floor = Math.max(s.startedAt, s.pauses.at(-1)?.to ?? s.startedAt);
     s.pauses.push({ from: Math.max(lastInputAt, floor) });
     s.status = "paused";
@@ -120,6 +124,7 @@ export function toSession(state: SessionState): Session {
     plannedMin: state.plannedMin,
     focusedMs: state.focusedMs,
     outcome: state.status === "completed" ? "completed" : "abandoned",
+    deep: state.deep,
     ...(state.reason !== undefined && { reason: state.reason }),
     pauses: state.pauses.map((p) => ({ from: iso(p.from), to: iso(p.to ?? endedAt) })),
     blocks: state.blocks.map((b) => ({ app: b.app, at: iso(b.at), killed: b.killed })),

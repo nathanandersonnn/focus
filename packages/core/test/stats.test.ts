@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, QUALIFYING_MS } from "../src/index";
+import { computeStats, DEEP_MULTIPLIER, QUALIFYING_MS } from "../src/index";
 import type { Session } from "../src/index";
 
 const MIN = 60_000;
@@ -15,6 +15,7 @@ function session(localDate: string, over: Partial<Session> = {}): Session {
     plannedMin: 60,
     focusedMs: 60 * MIN,
     outcome: "completed",
+    deep: false,
     pauses: [],
     blocks: [],
     ...over,
@@ -44,6 +45,16 @@ describe("points", () => {
       MON,
     );
     expect(stats.points).toBe(0);
+  });
+
+  it("doubles points for completed deep sessions", () => {
+    expect(computeStats([session(MON, { deep: true, focusedMs: 30 * MIN })], MON).points).toBe(60);
+    expect(DEEP_MULTIPLIER).toBe(2);
+  });
+
+  it("awards nothing for an abandoned deep session", () => {
+    const s = session(MON, { deep: true, outcome: "abandoned", reason: "closed", focusedMs: 40 * MIN });
+    expect(computeStats([s], MON).points).toBe(0);
   });
 
   it("awards points for weekend sessions", () => {
@@ -143,7 +154,7 @@ describe("streaks", () => {
     expect(stats.currentStreak).toBe(2);
   });
 
-  it("requires a completed session of at least 25 focused minutes", () => {
+  it("requires a completed session of at least 15 focused minutes", () => {
     const short = session(TUE, { focusedMs: QUALIFYING_MS - 1 });
     const abandoned = session(WED, { outcome: "abandoned", reason: "x" });
     expect(computeStats([session(MON), short], TUE).currentStreak).toBe(1);

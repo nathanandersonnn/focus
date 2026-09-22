@@ -11,6 +11,7 @@ export const sessionSchema = z
     plannedMin: z.number().int().min(1).max(600).nullable(),
     focusedMs: z.number().int().min(0),
     outcome: z.enum(["completed", "abandoned"]),
+    deep: z.boolean().default(false),
     reason: z.string().min(1).max(500).optional(),
     pauses: z.array(z.object({ from: timestamp, to: timestamp })).max(10_000),
     blocks: z

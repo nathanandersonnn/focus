@@ -57,7 +57,7 @@ Small single-purpose modules:
 | `session` | State machine (below). Pure: takes injected clock and last-input time | `core` |
 | `store` | Local JSON: the active session (rewritten every 5 s), the upload outbox, config (blocklist, dashboard URL, device key) | fs |
 | `sync` | Upload outbox entries; remove each only on confirmed success | `store`, fetch |
-| `cli` | `focus start [min]`, `focus dashboard`, `focus sync`; renders the live clock line; handles the in-window stop key | all of the above |
+| `cli` | `focus start [min]`, `focus deep <min>`, `focus dashboard`, `focus sync`; renders the live clock line; handles the in-window stop key | all of the above |
 
 Local state lives in `%USERPROFILE%\.focus\` (not `%LOCALAPPDATA%`, which Windows redirects for packaged
 apps, so tools launched from them would see a different copy).
@@ -79,7 +79,14 @@ apps, so tools launched from them would see a different copy).
 
 `focus start 60` begins a session with a target of **60 focused minutes**. Paused time does not count
 toward the target, so wall-clock duration can exceed it. `focus start` with no minutes runs open-ended:
-the clock counts up and pressing `s` finishes it as `completed` (no reason prompt). Starting also opens
+the clock counts up and pressing `s` finishes it as `completed` (no reason prompt).
+
+`focus deep <minutes>` starts a **deep** session. It requires a length — deep mode has no early exit,
+so an open-ended deep session could never end cleanly. Deep sessions differ in three ways: `s` and
+Ctrl+C are ignored, idle pauses after **2 minutes** instead of 5, and a completed deep session earns
+**2x points** (`DEEP_MULTIPLIER`). Streak rules are unchanged. Closing the window still abandons it.
+
+Starting also opens
 `https://neetcode.io/practice` in Chrome, falling back to the default browser if Chrome is absent.
 
 Starting is refused if a session is already running (lock file with PID in the state directory).
@@ -92,7 +99,7 @@ Starting is refused if a session is already running (lock file with PID in the s
 
 ### Pausing
 
-- If milliseconds since last input reaches **5 minutes**, the session pauses.
+- If milliseconds since last input reaches **5 minutes** (**2 minutes** in deep mode), the session pauses.
 - The pause is **backdated** to the moment of last input, so idle time never counts as focused.
 - The next input resumes the session.
 - Sleep, lock, and display-off need no separate handling: each produces an idle gap over 5 minutes.
@@ -102,7 +109,7 @@ Starting is refused if a session is already running (lock file with PID in the s
 | Outcome | Trigger | Time tracked | Points | Streak |
 |---|---|---|---|---|
 | `completed` | Focused time reaches the target, or `s` in an open-ended session | yes | 1 per focused minute | qualifies if focused ≥ 15 min |
-| `abandoned` | In the session window, press `s` or Ctrl+C, then type a reason; ends immediately | yes | 0 | no |
+| `abandoned` | In the session window, press `s` or Ctrl+C, then type a reason; ends immediately (not available in deep mode) | yes | 0 | no |
 | `abandoned` | Session window closed, agent killed, or PC shut down | yes | 0 | no |
 
 Stopping happens inside the session window — there is no separate stop command, so no inter-process
@@ -129,7 +136,8 @@ executable names, so no process-tree killing is needed. The blocklist lives in t
 
 ## Scoring (implemented once, in `computeStats`)
 
-- **Points:** completed sessions earn 1 point per whole focused minute. Abandoned sessions earn 0.
+- **Points:** completed sessions earn 1 point per whole focused minute, doubled for deep sessions.
+  Abandoned sessions earn 0, deep or not.
 - **Qualifying session:** `completed` with focused time ≥ 15 minutes.
 - **Streak:** consecutive **weekdays** (Mon–Fri), counting back from today, each with at least one
   qualifying session. Saturdays and Sundays are skipped: they neither break nor extend a streak.
@@ -151,6 +159,7 @@ type Session = {
   plannedMin: number | null; // null = open-ended
   focusedMs: number;
   outcome: "completed" | "abandoned";
+  deep: boolean;            // started with `focus deep`
   reason?: string;          // required when abandoned
   pauses: { from: string; to: string }[];
   blocks: { app: string; at: string; killed: boolean }[];

@@ -5,6 +5,7 @@ const MINUTE_MS = 60_000;
 const RECENT_LIMIT = 10;
 
 export const QUALIFYING_MS = 15 * MINUTE_MS;
+export const DEEP_MULTIPLIER = 2;
 
 export function computeStats(sessions: Session[], today: string): Stats {
   const todayDay = dayNumber(today);
@@ -28,7 +29,7 @@ export function computeStats(sessions: Session[], today: string): Stats {
     }
 
     if (s.outcome === "completed") {
-      points += Math.floor(s.focusedMs / MINUTE_MS);
+      points += Math.floor(s.focusedMs / MINUTE_MS) * (s.deep ? DEEP_MULTIPLIER : 1);
       if (s.focusedMs >= QUALIFYING_MS && isWeekday(day)) qualifyingDays.add(day);
     }
 
