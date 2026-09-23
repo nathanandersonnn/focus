@@ -7,7 +7,7 @@
     "focus": "bin/focus.mjs"
   },
   "scripts": {
-    "focus": "tsx src/cli.ts"
+    "focus": "node bin/focus.mjs"
   },
   "dependencies": {
     "@focus/core": "*",

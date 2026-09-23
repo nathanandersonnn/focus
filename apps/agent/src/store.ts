@@ -3,12 +3,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Session } from "@focus/core";
 import { DEFAULT_BLOCKLIST, type Blocklist } from "./blocker.js";
-import type { SessionState } from "./session.js";
+import { recoverStale, toSession, type SessionState } from "./session.js";
 
 export type Config = {
   blocklist: Blocklist;
   dashboardUrl?: string;
   deviceKey?: string;
+  startUrl?: string;
 };
 
 export type Active = { pid: number; state: SessionState };
@@ -36,8 +37,9 @@ export function createStore(dir: string) {
   function readJson<T>(path: string): T | null {
     try {
       return JSON.parse(readFileSync(path, "utf8")) as T;
-    } catch {
-      return null;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw new Error(`Could not read ${path}; the file has been preserved.`, { cause: err });
     }
   }
 
@@ -47,9 +49,18 @@ export function createStore(dir: string) {
     loadConfig(): Config {
       const existing = readJson<Partial<Config>>(configPath);
       if (!existing) {
-        const fresh: Config = { blocklist: DEFAULT_BLOCKLIST, dashboardUrl: "", deviceKey: "" };
+        const fresh: Config = { blocklist: DEFAULT_BLOCKLIST, dashboardUrl: "", deviceKey: "", startUrl: "" };
         writeJson(configPath, fresh);
         return fresh;
+      }
+      if (existing.startUrl) {
+        try {
+          if (typeof existing.startUrl !== "string" || !["http:", "https:"].includes(new URL(existing.startUrl).protocol)) {
+            throw new Error("invalid URL");
+          }
+        } catch {
+          throw new Error(`startUrl in ${configPath} must be an http(s) URL or an empty string.`);
+        }
       }
       return { ...existing, blocklist: existing.blocklist ?? DEFAULT_BLOCKLIST };
     },
@@ -69,11 +80,12 @@ export function createStore(dir: string) {
   };
 }
 
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
-  }
+// Callers hold the session lock, so no live agent can own the active file. Checking its pid would be
+// wrong: Windows reuses process IDs, and an unrelated process could block every later start.
+export function recoverIfStale(store: Store): "none" | "recovered" {
+  const active = store.loadActive();
+  if (!active) return "none";
+  store.enqueue(toSession(recoverStale(active.state)));
+  store.clearActive();
+  return "recovered";
 }

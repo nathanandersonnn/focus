@@ -1,221 +1,129 @@
 import { describe, expect, it } from "vitest";
-import {
-  DEEP_IDLE_MS,
-  IDLE_MS,
-  abandon,
-  finish,
-  recordBlocks,
-  recoverStale,
-  startSession,
-  tick,
-  toSession,
-} from "../src/session.js";
+import type { Mode } from "@focus/core";
+import { abandon, finish, pause, resume, recordBlocks, recoverStale, startSession, tick, toSession, type SessionState } from "../src/session.js";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-09-14T10:00:00.000Z");
+const fresh = (plannedMin: number | null = 60, mode: Mode = "regular") =>
+  startSession({ id: "abc", localDate: "2026-09-14", plannedMin, mode, now: T0 });
 
-function fresh(plannedMin = 60) {
-  return startSession({ id: "abc", localDate: "2026-09-14", plannedMin, now: T0 });
+// Simulate timer cadence; a single large jump represents suspension.
+function work(state: SessionState, minutes: number): SessionState {
+  const until = state.lastTickAt + minutes * MIN;
+  for (let now = state.lastTickAt + 1000; now <= until; now += 1000) state = tick(state, now);
+  return state;
 }
 
-describe("running", () => {
-  it("accumulates focused time while input keeps coming", () => {
-    const s = tick(fresh(), T0 + 10 * MIN, T0 + 10 * MIN - 1000);
+describe("study time", () => {
+  it.each<Mode>(["regular", "deep"])("counts uninterrupted reading (%s)", (mode) => {
+    const s = work(fresh(60, mode), 8);
     expect(s.status).toBe("running");
-    expect(s.focusedMs).toBe(10 * MIN);
+    expect(s.focusedMs).toBe(8 * MIN);
+    expect(s.pauses).toEqual([]);
   });
 
-  it("completes when focused time reaches the target", () => {
-    let s = fresh(30);
-    s = tick(s, T0 + 30 * MIN, T0 + 30 * MIN);
+  it("caps time at the target when the final tick is late", () => {
+    const s = tick(work(fresh(30), 29.9), T0 + 30 * MIN + 1000);
     expect(s.status).toBe("completed");
-    expect(s.focusedMs).toBe(30 * MIN);
-  });
-
-  it("does not credit focused time beyond the target", () => {
-    const s = tick(fresh(30), T0 + 31 * MIN, T0 + 31 * MIN);
     expect(s.focusedMs).toBe(30 * MIN);
     expect(s.endedAt).toBe(T0 + 30 * MIN);
+    expect(tick(s, T0 + 90 * MIN)).toBe(s);
+  });
+
+  it("keeps open-ended sessions running until finished", () => {
+    const s = work(fresh(null), 700);
+    expect(s.status).toBe("running");
+    expect(toSession(finish(s, s.lastTickAt))).toMatchObject({ plannedMin: null, focusedMs: 700 * MIN, outcome: "completed" });
+  });
+
+  it("does not move recorded time backwards with the wall clock", () => {
+    const s = work(fresh(), 2);
+    expect(tick(s, T0 + MIN)).toEqual(s);
   });
 });
 
-describe("idle pause", () => {
-  it("stays running just under the idle threshold", () => {
-    const lastInput = T0 + 2 * MIN;
-    const s = tick(fresh(), lastInput + IDLE_MS - 1, lastInput);
-    expect(s.status).toBe("running");
-  });
-
-  it("pauses at the threshold, backdated to the last input", () => {
-    const lastInput = T0 + 2 * MIN;
-    const s = tick(fresh(), lastInput + IDLE_MS, lastInput);
-    expect(s.status).toBe("paused");
-    expect(s.pauses).toEqual([{ from: lastInput }]);
+describe("breaks and interrupted timers", () => {
+  it("pauses immediately and resumes explicitly without counting the break", () => {
+    const before = work(fresh(), 2);
+    let s = pause(before, before.lastTickAt);
+    s = tick(s, T0 + 20 * MIN);
     expect(s.focusedMs).toBe(2 * MIN);
-  });
-
-  it("never backdates a pause to before the session started", () => {
-    const s = tick(fresh(), T0 + IDLE_MS, T0 - 30 * MIN);
-    expect(s.pauses).toEqual([{ from: T0 }]);
-    expect(s.focusedMs).toBe(0);
-  });
-
-  it("stays paused with no new input", () => {
-    const lastInput = T0 + 2 * MIN;
-    let s = tick(fresh(), lastInput + IDLE_MS, lastInput);
-    s = tick(s, T0 + 40 * MIN, lastInput);
     expect(s.status).toBe("paused");
-    expect(s.focusedMs).toBe(2 * MIN);
+    s = work(resume(s, T0 + 20 * MIN), 3);
+    expect(s.focusedMs).toBe(5 * MIN);
+    expect(s.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 20 * MIN }]);
+    expect(before.pauses).toEqual([]);
   });
 
-  it("resumes on new input, excluding the whole idle gap", () => {
-    const lastInput = T0 + 2 * MIN;
-    let s = tick(fresh(), lastInput + IDLE_MS, lastInput);
-    const back = T0 + 20 * MIN;
-    s = tick(s, back + 4 * MIN, back);
-    expect(s.status).toBe("running");
-    expect(s.pauses).toEqual([{ from: lastInput, to: back }]);
-    expect(s.focusedMs).toBe(2 * MIN + 4 * MIN);
-  });
-
-  it("handles a sleep gap like any other idle gap", () => {
-    const lastInput = T0 + 10 * MIN;
+  it("excludes sleep even when input arrives before the first resumed tick", () => {
+    const before = work(fresh(), 10);
     const wake = T0 + 120 * MIN;
-    const s = tick(fresh(), wake, lastInput);
+    const s = tick(before, wake);
     expect(s.status).toBe("paused");
     expect(s.focusedMs).toBe(10 * MIN);
+    expect(s.pauses).toEqual([{ from: before.lastTickAt }]);
+    expect(work(resume(s, wake), 1).focusedMs).toBe(11 * MIN);
   });
 
-  it("does not backdate a second pause into the first pause", () => {
-    let s = tick(fresh(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
-    const back = T0 + 20 * MIN;
-    s = tick(s, back, back);
-    s = tick(s, back + IDLE_MS, T0 + 2 * MIN);
-    expect(s.pauses[1]).toEqual({ from: back });
-  });
-});
-
-describe("ending early", () => {
-  it("abandons with a reason at the current focused time", () => {
-    let s = tick(fresh(), T0 + 12 * MIN, T0 + 12 * MIN);
-    s = abandon(s, T0 + 12 * MIN, "friends online");
-    expect(s.status).toBe("abandoned");
-    expect(s.reason).toBe("friends online");
-    expect(s.focusedMs).toBe(12 * MIN);
+  it("excludes sleep when a resume or stop key arrives before the timer", () => {
+    const s = work(fresh(), 10);
+    const wake = T0 + 120 * MIN;
+    expect(resume(s, wake).focusedMs).toBe(10 * MIN);
+    expect(abandon(s, wake, "done").focusedMs).toBe(10 * MIN);
+    expect(finish(s, wake).focusedMs).toBe(10 * MIN);
   });
 
-  it("closes an open pause when abandoning", () => {
-    let s = tick(fresh(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
-    s = abandon(s, T0 + 30 * MIN, "done");
-    expect(s.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 30 * MIN }]);
-    expect(s.focusedMs).toBe(2 * MIN);
-  });
-
-  it("recovers a stale session as abandoned at its last saved tick", () => {
-    let s = tick(fresh(), T0 + 15 * MIN, T0 + 15 * MIN);
-    s = recoverStale(s);
-    expect(s.status).toBe("abandoned");
-    expect(s.reason).toBe("agent closed");
-    expect(s.endedAt).toBe(T0 + 15 * MIN);
-    expect(s.focusedMs).toBe(15 * MIN);
+  it("does not add overlapping pauses or mutate earlier states", () => {
+    const s = pause(work(fresh(), 2), T0 + 2 * MIN);
+    const stillPaused = pause(s, T0 + 20 * MIN);
+    const running = resume(stillPaused, T0 + 21 * MIN);
+    expect(stillPaused.pauses).toEqual([{ from: T0 + 2 * MIN }]);
+    expect(running.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 21 * MIN }]);
   });
 });
 
-describe("open-ended sessions", () => {
-  const open = () => startSession({ id: "abc", localDate: "2026-09-14", plannedMin: null, now: T0 });
-
-  it("keeps running past any length", () => {
-    const s = tick(open(), T0 + 900 * MIN, T0 + 900 * MIN);
-    expect(s.status).toBe("running");
-    expect(s.focusedMs).toBe(900 * MIN);
+describe("ending and recovery", () => {
+  it.each<Mode>(["regular", "deep"])("preserves time and reason when ending early (%s)", (mode) => {
+    const s = abandon(work(fresh(60, mode), 12), T0 + 12 * MIN, "appointment");
+    expect(toSession(s)).toMatchObject({ focusedMs: 12 * MIN, mode, outcome: "abandoned", reason: "appointment" });
   });
 
-  it("still pauses on idle", () => {
-    const s = tick(open(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
-    expect(s.status).toBe("paused");
-    expect(s.focusedMs).toBe(2 * MIN);
+  it("closes an open pause without counting it", () => {
+    const s = pause(work(fresh(), 2), T0 + 2 * MIN);
+    const ended = abandon(s, T0 + 30 * MIN, "done");
+    expect(ended.focusedMs).toBe(2 * MIN);
+    expect(ended.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 30 * MIN }]);
   });
 
-  it("finishes as completed with all focused time", () => {
-    let s = tick(open(), T0 + 40 * MIN, T0 + 40 * MIN);
-    s = finish(s, T0 + 40 * MIN);
-    expect(s.status).toBe("completed");
-    expect(s.focusedMs).toBe(40 * MIN);
-    expect(s.endedAt).toBe(T0 + 40 * MIN);
-    expect(toSession(s)).toMatchObject({ plannedMin: null, outcome: "completed" });
+  it("records completion if the target is reached as the stop key arrives", () => {
+    const s = work(fresh(30), 29.9);
+    expect(abandon(s, T0 + 30 * MIN, "done").status).toBe("completed");
   });
 
-  it("closes an open pause when finishing", () => {
-    let s = tick(open(), T0 + 2 * MIN + IDLE_MS, T0 + 2 * MIN);
-    s = finish(s, T0 + 30 * MIN);
-    expect(s.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 30 * MIN }]);
-    expect(s.focusedMs).toBe(2 * MIN);
+  it("recovers only through the saved tick, including paused sessions", () => {
+    const s = work(fresh(), 15);
+    expect(toSession(recoverStale(s))).toMatchObject({ focusedMs: 15 * MIN, outcome: "abandoned", reason: "agent closed", endedAt: new Date(s.lastTickAt).toISOString() });
+    const paused = tick(pause(s, s.lastTickAt), T0 + 30 * MIN);
+    expect(recoverStale(paused).focusedMs).toBe(15 * MIN);
   });
 
-  it("does not cap abandoned time", () => {
-    const s = abandon(tick(open(), T0 + 700 * MIN, T0 + 700 * MIN), T0 + 700 * MIN, "agent closed");
-    expect(s.focusedMs).toBe(700 * MIN);
-  });
-});
-
-describe("deep sessions", () => {
-  const deep = (plannedMin: number | null = 60) =>
-    startSession({ id: "abc", localDate: "2026-09-14", plannedMin, deep: true, now: T0 });
-
-  it("pauses after 2 minutes idle instead of 5", () => {
-    const lastInput = T0 + 3 * MIN;
-    expect(tick(deep(), lastInput + DEEP_IDLE_MS - 1, lastInput).status).toBe("running");
-    const paused = tick(deep(), lastInput + DEEP_IDLE_MS, lastInput);
-    expect(paused.status).toBe("paused");
-    expect(paused.focusedMs).toBe(3 * MIN);
+  it("preserves a completed snapshot during recovery", () => {
+    const s = work(fresh(1), 1);
+    expect(recoverStale(s)).toBe(s);
   });
 
-  it("still uses the 5 minute rule for normal sessions", () => {
-    const lastInput = T0 + 3 * MIN;
-    expect(tick(fresh(), lastInput + DEEP_IDLE_MS, lastInput).status).toBe("running");
-  });
-
-  it("carries the deep flag through to the exported session", () => {
-    const s = tick(deep(30), T0 + 30 * MIN, T0 + 30 * MIN);
-    expect(toSession(s)).toMatchObject({ deep: true, outcome: "completed" });
-  });
-
-  it("marks normal sessions as not deep", () => {
-    const s = tick(fresh(30), T0 + 30 * MIN, T0 + 30 * MIN);
-    expect(toSession(s).deep).toBe(false);
-  });
-});
-
-describe("blocks and export", () => {
-  it("records one block per app per tick", () => {
-    const s = recordBlocks(fresh(), T0 + MIN, [
-      { app: "Steam", killed: true },
-      { app: "Discord", killed: false },
-    ]);
-    expect(s.blocks).toEqual([
-      { app: "Steam", at: T0 + MIN, killed: true },
-      { app: "Discord", at: T0 + MIN, killed: false },
-    ]);
-  });
-
-  it("exports a core Session with ISO timestamps", () => {
-    let s = tick(fresh(30), T0 + 30 * MIN, T0 + 30 * MIN);
-    s = recordBlocks(s, T0 + MIN, [{ app: "Steam", killed: true }]);
-    expect(toSession(s)).toEqual({
-      id: "abc",
-      localDate: "2026-09-14",
-      startedAt: "2026-09-14T10:00:00.000Z",
-      endedAt: "2026-09-14T10:30:00.000Z",
-      plannedMin: 30,
-      focusedMs: 30 * MIN,
-      outcome: "completed",
-      deep: false,
-      pauses: [],
-      blocks: [{ app: "Steam", at: "2026-09-14T10:01:00.000Z", killed: true }],
+  it("exports timestamps, mode, and block results", () => {
+    let s = work(fresh(30, "deep"), 1);
+    s = recordBlocks(s, s.lastTickAt, [{ app: "Steam", killed: true }, { app: "Discord", killed: false }]);
+    s = work(s, 29);
+    expect(toSession(s)).toMatchObject({
+      mode: "deep", outcome: "completed", focusedMs: 30 * MIN,
+      startedAt: new Date(T0).toISOString(), endedAt: new Date(T0 + 30 * MIN).toISOString(),
+      blocks: [{ app: "Steam", killed: true, at: new Date(T0 + MIN).toISOString() }, { app: "Discord", killed: false, at: new Date(T0 + MIN).toISOString() }],
     });
   });
 
-  it("refuses to export a session that has not ended", () => {
+  it("refuses to export an unfinished session", () => {
     expect(() => toSession(fresh())).toThrow();
   });
 });

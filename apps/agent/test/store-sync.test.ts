@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Session } from "@focus/core";
-import { createStore, isProcessAlive, type Store } from "../src/store.js";
+import { createStore, type Store } from "../src/store.js";
 import { flush } from "../src/sync.js";
 import { startSession } from "../src/session.js";
 
@@ -16,7 +16,7 @@ function session(id: string): Session {
     plannedMin: 60,
     focusedMs: 3_600_000,
     outcome: "completed",
-    deep: false,
+    mode: "regular",
     pauses: [],
     blocks: [],
   };
@@ -49,7 +49,26 @@ describe("store", () => {
   it("creates a default config with the blocklist on first load", () => {
     const config = store.loadConfig();
     expect(config.blocklist.Steam).toContain("steamwebhelper.exe");
+    expect(config.startUrl).toBe("");
     expect(createStore(dir).loadConfig()).toEqual(config);
+  });
+
+  it("preserves a malformed config instead of resetting it", () => {
+    writeFileSync(store.configPath, "{broken");
+    expect(() => store.loadConfig()).toThrow("preserved");
+    expect(readFileSync(store.configPath, "utf8")).toBe("{broken");
+  });
+
+  it("loads older configs without requiring an automatic start page", () => {
+    writeFileSync(store.configPath, JSON.stringify({ blocklist: {} }));
+    expect(store.loadConfig().startUrl).toBeUndefined();
+  });
+
+  it("accepts a study page and rejects unsupported launch URLs", () => {
+    writeFileSync(store.configPath, JSON.stringify({ startUrl: "https://example.com/study?a=1&b=2" }));
+    expect(store.loadConfig().startUrl).toBe("https://example.com/study?a=1&b=2");
+    writeFileSync(store.configPath, JSON.stringify({ startUrl: "file:///something.exe" }));
+    expect(() => store.loadConfig()).toThrow("http(s)");
   });
 
   it("round-trips the active session and clears it", () => {
@@ -66,10 +85,6 @@ describe("store", () => {
     expect(store.outbox().map((s) => s.id).sort()).toEqual(["x", "y"]);
     store.dequeue("x");
     expect(store.outbox().map((s) => s.id)).toEqual(["y"]);
-  });
-
-  it("detects this process as alive", () => {
-    expect(isProcessAlive(process.pid)).toBe(true);
   });
 });
 

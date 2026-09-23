@@ -48,7 +48,7 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
         <thead>
           <tr>
             <th>Day</th>
-            <th>Focused</th>
+            <th>Study time</th>
             <th>Result</th>
           </tr>
         </thead>
@@ -62,9 +62,9 @@ function RecentSessions({ sessions }: { sessions: Session[] }) {
               </td>
               <td>
                 <span className={s.outcome === "completed" ? styles.completed : styles.abandoned}>
-                  {s.outcome}
+                  {s.outcome === "completed" ? "completed" : "ended early"}
                 </span>
-                {s.deep && <span className={styles.deepTag}>deep</span>}
+                <span className={styles.modeTag}>{s.mode}</span>
                 {s.reason && <div className={styles.reason}>&ldquo;{s.reason}&rdquo;</div>}
               </td>
             </tr>
@@ -98,9 +98,9 @@ export default async function Home() {
 
       <section className={styles.hero}>
         <div className={styles.stat}>
-          <div className={styles.statLabel}>Weekday streak</div>
+          <div className={styles.statLabel}>Study streak</div>
           <div className={`${styles.statValue} ${styles.streak}`}>{stats.currentStreak}</div>
-          <div className={styles.statNote}>best {stats.bestStreak}</div>
+          <div className={styles.statNote}>best {stats.bestStreak} · 15 minutes per study day</div>
         </div>
         <div className={styles.stat}>
           <div className={styles.statLabel}>Today</div>
@@ -117,6 +117,10 @@ export default async function Home() {
         </div>
       </section>
 
+      <p className={styles.statNote}>
+        Weekends are optional. Each weekend study day adds to your streak and covers one missed weekday
+        the following week. Days off preserve your streak without adding to it.
+      </p>
       <h2 className={styles.sectionTitle}>This week</h2>
       <WeekChart week={stats.week} today={today} />
 

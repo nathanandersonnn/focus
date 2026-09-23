@@ -1,3 +1,4 @@
+import type { Session } from "@focus/core";
 import { z } from "zod";
 
 const timestamp = z.iso.datetime({ offset: true });
@@ -11,7 +12,9 @@ export const sessionSchema = z
     plannedMin: z.number().int().min(1).max(600).nullable(),
     focusedMs: z.number().int().min(0),
     outcome: z.enum(["completed", "abandoned"]),
-    deep: z.boolean().default(false),
+    mode: z.enum(["regular", "deep", "class"]).optional(),
+    // Sent by agents before class mode was tracked; queued sessions may still carry it.
+    deep: z.boolean().optional(),
     reason: z.string().min(1).max(500).optional(),
     pauses: z.array(z.object({ from: timestamp, to: timestamp })).max(10_000),
     blocks: z
@@ -21,4 +24,5 @@ export const sessionSchema = z
   .refine((s) => s.outcome !== "abandoned" || s.reason !== undefined, {
     message: "reason is required when a session is abandoned",
     path: ["reason"],
-  });
+  })
+  .transform(({ deep, mode, ...s }): Session => ({ ...s, mode: mode ?? (deep ? "deep" : "regular") }));

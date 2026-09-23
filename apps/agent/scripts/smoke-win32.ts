@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { sweep } from "../src/blocker.js";
-import { killProcess, listProcesses, msSinceLastInput } from "../src/win32.js";
+import { killProcess, listProcesses } from "../src/win32.js";
 
 const procs = listProcesses();
 console.log(`listProcesses: ${procs.length} processes, e.g. ${procs.slice(0, 3).map((p) => p.name).join(", ")}`);
-console.log(`msSinceLastInput: ${msSinceLastInput()}`);
 
 if (procs.some((p) => p.name.toLowerCase() === "notepad.exe")) {
   console.log("Notepad is already open; refusing to kill it. Close Notepad and re-run.");

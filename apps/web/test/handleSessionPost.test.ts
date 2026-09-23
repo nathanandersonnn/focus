@@ -12,7 +12,7 @@ const valid: Session = {
   plannedMin: 60,
   focusedMs: 3_600_000,
   outcome: "completed",
-  deep: false,
+  mode: "regular",
   pauses: [{ from: "2026-09-14T17:10:00.000Z", to: "2026-09-14T17:12:00.000Z" }],
   blocks: [{ app: "Steam", at: "2026-09-14T17:05:00.000Z", killed: true }],
 };
@@ -76,16 +76,28 @@ describe("POST /api/sessions", () => {
     expect(db.rows.get(valid.id)?.plannedMin).toBeNull();
   });
 
-  it("stores deep sessions and defaults the flag when it is missing", async () => {
+  it.each(["regular", "deep", "class"])("stores %s sessions with their mode", async (mode) => {
+    const db = memoryDb();
+    expect((await handleSessionPost(post({ ...valid, mode }), { deviceKey: KEY, insert: db.insert })).status).toBe(200);
+    expect(db.rows.get(valid.id)?.mode).toBe(mode);
+  });
+
+  it("derives the mode for sessions queued by older agents", async () => {
     const db = memoryDb();
     const deps = { deviceKey: KEY, insert: db.insert };
-    expect((await handleSessionPost(post({ ...valid, deep: true }), deps)).status).toBe(200);
-    expect(db.rows.get(valid.id)?.deep).toBe(true);
+    const { mode: _omitted, ...older } = valid;
+    expect((await handleSessionPost(post({ ...older, deep: true }), deps)).status).toBe(200);
+    expect(db.rows.get(valid.id)).toMatchObject({ mode: "deep" });
+    expect(db.rows.get(valid.id)).not.toHaveProperty("deep");
 
-    const { deep: _omitted, ...withoutFlag } = valid;
-    const older = { ...withoutFlag, id: "8d0b2a44-0f2e-4a2c-9a7f-1c2b3d4e5f60" };
-    expect((await handleSessionPost(post(older), deps)).status).toBe(200);
-    expect(db.rows.get(older.id)?.deep).toBe(false);
+    const oldest = { ...older, id: "8d0b2a44-0f2e-4a2c-9a7f-1c2b3d4e5f60" };
+    expect((await handleSessionPost(post(oldest), deps)).status).toBe(200);
+    expect(db.rows.get(oldest.id)?.mode).toBe("regular");
+  });
+
+  it("rejects an unknown mode", async () => {
+    const db = memoryDb();
+    expect((await handleSessionPost(post({ ...valid, mode: "nap" }), { deviceKey: KEY, insert: db.insert })).status).toBe(400);
   });
 
   it("requires a reason for abandoned sessions", async () => {

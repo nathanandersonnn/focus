@@ -36,3 +36,12 @@ export async function flush(store: Store, config: Config, fetchImpl: typeof fetc
   }
   return { kind: "done", sent, queued: pending.length - sent, unauthorized: false };
 }
+
+export function describeSync(result: SyncResult, store: Store): string {
+  if (result.kind === "not-configured") {
+    return `Dashboard not set up yet; ${result.queued} session(s) saved locally. Add dashboardUrl and deviceKey to ${store.configPath}.`;
+  }
+  if (result.unauthorized) return `Dashboard rejected the device key; ${result.queued} session(s) still queued. Check deviceKey in ${store.configPath}.`;
+  if (result.queued > 0) return `Synced ${result.sent}; ${result.queued} still queued (dashboard unreachable). They'll retry next session.`;
+  return result.sent > 0 ? `Synced ${result.sent} session(s) to the dashboard.` : "Dashboard up to date.";
+}

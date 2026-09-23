@@ -1,10 +1,11 @@
-import { dayNumber, isWeekday, mondayOf, nextWeekday, previousWeekday, toLocalDate } from "./dates";
+import { dayNumber, isWeekday, mondayOf, toLocalDate } from "./dates";
 import type { Session, Stats } from "./types";
 
 const MINUTE_MS = 60_000;
 const RECENT_LIMIT = 10;
 
 export const QUALIFYING_MS = 15 * MINUTE_MS;
+// Deep sessions cannot be ended early, so finishing one earns double.
 export const DEEP_MULTIPLIER = 2;
 
 export function computeStats(sessions: Session[], today: string): Stats {
@@ -16,6 +17,7 @@ export function computeStats(sessions: Session[], today: string): Stats {
   let totalFocusedMs = 0;
   let points = 0;
   const qualifyingDays = new Set<number>();
+  const dayMs = new Map<number, number>();
   const blockCounts = new Map<string, number>();
   const weekMs = [0, 0, 0, 0, 0, 0, 0];
 
@@ -28,10 +30,10 @@ export function computeStats(sessions: Session[], today: string): Stats {
       weekMs[day - weekStart]! += s.focusedMs;
     }
 
-    if (s.outcome === "completed") {
-      points += Math.floor(s.focusedMs / MINUTE_MS) * (s.deep ? DEEP_MULTIPLIER : 1);
-      if (s.focusedMs >= QUALIFYING_MS && isWeekday(day)) qualifyingDays.add(day);
-    }
+    const deepBonus = s.mode === "deep" && s.outcome === "completed";
+    points += Math.floor(s.focusedMs / MINUTE_MS) * (deepBonus ? DEEP_MULTIPLIER : 1);
+    dayMs.set(day, (dayMs.get(day) ?? 0) + s.focusedMs);
+    if (dayMs.get(day)! >= QUALIFYING_MS) qualifyingDays.add(day);
 
     for (const b of s.blocks) blockCounts.set(b.app, (blockCounts.get(b.app) ?? 0) + 1);
   }
@@ -46,8 +48,7 @@ export function computeStats(sessions: Session[], today: string): Stats {
     weekFocusedMs,
     totalFocusedMs,
     points,
-    currentStreak: currentStreak(qualifyingDays, todayDay),
-    bestStreak: bestStreak(qualifyingDays),
+    ...computeStreaks(qualifyingDays, todayDay),
     recent: [...sessions]
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))
       .slice(0, RECENT_LIMIT),
@@ -57,25 +58,26 @@ export function computeStats(sessions: Session[], today: string): Stats {
   };
 }
 
-function currentStreak(days: Set<number>, today: number): number {
-  // Today still counts as "not over", so a streak survives until a full weekday is missed.
-  let cursor = isWeekday(today) && days.has(today) ? today : previousWeekday(today);
-  let streak = 0;
-  while (days.has(cursor)) {
-    streak += 1;
-    cursor = previousWeekday(cursor);
-  }
-  return streak;
-}
+function computeStreaks(days: Set<number>, today: number): { currentStreak: number; bestStreak: number } {
+  const first = [...days].filter((day) => day <= today).sort((a, b) => a - b)[0];
+  let currentStreak = 0;
+  let bestStreak = 0;
+  let weekendCredits = 0;
 
-function bestStreak(days: Set<number>): number {
-  let best = 0;
-  let run = 0;
-  let prev: number | undefined;
-  for (const day of [...days].sort((a, b) => a - b)) {
-    run = prev !== undefined && nextWeekday(prev) === day ? run + 1 : 1;
-    best = Math.max(best, run);
-    prev = day;
+  for (let day = first ?? today; day <= today; day += 1) {
+    const weekday = isWeekday(day);
+    // A new Saturday starts a fresh weekend; credits never accumulate across weeks.
+    if (!weekday && isWeekday(day - 1)) weekendCredits = 0;
+
+    if (days.has(day)) {
+      currentStreak += 1;
+      if (!weekday) weekendCredits += 1;
+      bestStreak = Math.max(bestStreak, currentStreak);
+    } else if (weekday && day < today) {
+      // Today is still in progress. Only completed, missed weekdays need cover.
+      if (weekendCredits > 0) weekendCredits -= 1;
+      else currentStreak = 0;
+    }
   }
-  return best;
+  return { currentStreak, bestStreak };
 }

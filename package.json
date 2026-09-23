@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p apps/agent"
+    "typecheck": "tsc --noEmit -p packages/core && tsc --noEmit -p apps/agent && tsc --noEmit --incremental false -p apps/web"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

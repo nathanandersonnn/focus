@@ -1,7 +1,7 @@
-import type { Session } from "@focus/core";
+import type { Mode, Session } from "@focus/core";
 
-export const IDLE_MS = 5 * 60_000;
-export const DEEP_IDLE_MS = 2 * 60_000;
+// A suspended or stalled timer cannot establish how that interval was spent.
+export const MAX_TICK_GAP_MS = 30_000;
 
 export type Status = "running" | "paused" | "completed" | "abandoned";
 
@@ -9,7 +9,7 @@ export type SessionState = {
   id: string;
   localDate: string;
   plannedMin: number | null;
-  deep: boolean;
+  mode: Mode;
   startedAt: number;
   status: Status;
   focusedMs: number;
@@ -26,14 +26,14 @@ export function startSession(opts: {
   id: string;
   localDate: string;
   plannedMin: number | null;
-  deep?: boolean;
+  mode?: Mode;
   now: number;
 }): SessionState {
   return {
     id: opts.id,
     localDate: opts.localDate,
     plannedMin: opts.plannedMin,
-    deep: opts.deep ?? false,
+    mode: opts.mode ?? "regular",
     startedAt: opts.now,
     status: "running",
     focusedMs: 0,
@@ -52,19 +52,12 @@ function focusedAt(state: SessionState, t: number): number {
   return Math.max(0, t - state.startedAt - paused);
 }
 
-export function tick(state: SessionState, now: number, lastInputAt: number): SessionState {
+export function tick(state: SessionState, now: number): SessionState {
   if (isEnded(state)) return state;
+  now = Math.max(now, state.lastTickAt);
   const s: SessionState = { ...state, pauses: state.pauses.map((p) => ({ ...p })) };
-  const open = s.pauses.at(-1);
-
-  if (s.status === "paused" && open && lastInputAt > open.from) {
-    open.to = lastInputAt;
-    s.status = "running";
-  }
-
-  if (s.status === "running" && now - lastInputAt >= (s.deep ? DEEP_IDLE_MS : IDLE_MS)) {
-    const floor = Math.max(s.startedAt, s.pauses.at(-1)?.to ?? s.startedAt);
-    s.pauses.push({ from: Math.max(lastInputAt, floor) });
+  if (s.status === "running" && now - s.lastTickAt > MAX_TICK_GAP_MS) {
+    s.pauses.push({ from: s.lastTickAt });
     s.status = "paused";
   }
 
@@ -81,24 +74,41 @@ export function tick(state: SessionState, now: number, lastInputAt: number): Ses
   return s;
 }
 
+export function pause(state: SessionState, now: number): SessionState {
+  const s = tick(state, now);
+  if (s.status !== "running") return s;
+  return { ...s, status: "paused", pauses: [...s.pauses, { from: s.lastTickAt }] };
+}
+
+export function resume(state: SessionState, now: number): SessionState {
+  const s = tick(state, now);
+  if (s.status !== "paused") return s;
+  const open = s.pauses.at(-1);
+  if (open) open.to = s.lastTickAt;
+  return { ...s, status: "running" };
+}
+
 function plannedMsOf(state: SessionState): number {
   return state.plannedMin === null ? Infinity : state.plannedMin * 60_000;
 }
 
-function endAt(state: SessionState, now: number): SessionState {
+function endAt(state: SessionState): SessionState {
+  const now = state.lastTickAt;
   const pauses = state.pauses.map((p) => (p.to === undefined ? { ...p, to: now } : { ...p }));
   const s: SessionState = { ...state, pauses };
   return { ...s, focusedMs: Math.min(focusedAt(s, now), plannedMsOf(s)), endedAt: now, lastTickAt: now };
 }
 
 export function abandon(state: SessionState, now: number, reason: string): SessionState {
+  state = tick(state, now);
   if (isEnded(state)) return state;
-  return { ...endAt(state, now), status: "abandoned", reason };
+  return { ...endAt(state), status: "abandoned", reason };
 }
 
 export function finish(state: SessionState, now: number): SessionState {
+  state = tick(state, now);
   if (isEnded(state)) return state;
-  return { ...endAt(state, now), status: "completed" };
+  return { ...endAt(state), status: "completed" };
 }
 
 export function recoverStale(state: SessionState): SessionState {
@@ -124,7 +134,7 @@ export function toSession(state: SessionState): Session {
     plannedMin: state.plannedMin,
     focusedMs: state.focusedMs,
     outcome: state.status === "completed" ? "completed" : "abandoned",
-    deep: state.deep,
+    mode: state.mode,
     ...(state.reason !== undefined && { reason: state.reason }),
     pauses: state.pauses.map((p) => ({ from: iso(p.from), to: iso(p.to ?? endedAt) })),
     blocks: state.blocks.map((b) => ({ app: b.app, at: iso(b.at), killed: b.killed })),

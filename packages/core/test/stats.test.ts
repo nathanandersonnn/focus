@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeStats, DEEP_MULTIPLIER, QUALIFYING_MS } from "../src/index";
+import { computeStats, QUALIFYING_MS } from "../src/index";
 import type { Session } from "../src/index";
 
 const MIN = 60_000;
@@ -15,7 +15,7 @@ function session(localDate: string, over: Partial<Session> = {}): Session {
     plannedMin: 60,
     focusedMs: 60 * MIN,
     outcome: "completed",
-    deep: false,
+    mode: "regular",
     pauses: [],
     blocks: [],
     ...over,
@@ -39,22 +39,30 @@ describe("points", () => {
     expect(stats.points).toBe(61);
   });
 
-  it("awards nothing for abandoned sessions", () => {
+  it("preserves points for sessions ended early", () => {
     const stats = computeStats(
       [session(MON, { outcome: "abandoned", reason: "gaming", focusedMs: 40 * MIN })],
       MON,
     );
-    expect(stats.points).toBe(0);
+    expect(stats.points).toBe(40);
   });
 
-  it("doubles points for completed deep sessions", () => {
-    expect(computeStats([session(MON, { deep: true, focusedMs: 30 * MIN })], MON).points).toBe(60);
-    expect(DEEP_MULTIPLIER).toBe(2);
+  it("doubles points for completed deep work", () => {
+    expect(computeStats([session(MON, { mode: "deep", focusedMs: 30 * MIN })], MON).points).toBe(60);
   });
 
-  it("awards nothing for an abandoned deep session", () => {
-    const s = session(MON, { deep: true, outcome: "abandoned", reason: "closed", focusedMs: 40 * MIN });
-    expect(computeStats([s], MON).points).toBe(0);
+  it("gives class the same points as regular study", () => {
+    expect(computeStats([session(MON, { mode: "class", plannedMin: null, focusedMs: 30 * MIN })], MON).points).toBe(30);
+  });
+
+  it("pays single points for deep work cut short when the agent closed", () => {
+    const s = session(MON, { mode: "deep", outcome: "abandoned", reason: "agent closed", focusedMs: 40 * MIN });
+    expect(computeStats([s], MON).points).toBe(40);
+  });
+
+  it("counts deep time once toward totals and streaks", () => {
+    const stats = computeStats([session(MON, { mode: "deep", focusedMs: 15 * MIN })], MON);
+    expect(stats).toMatchObject({ todayFocusedMs: 15 * MIN, totalFocusedMs: 15 * MIN, currentStreak: 1 });
   });
 
   it("awards points for weekend sessions", () => {
@@ -102,12 +110,12 @@ describe("week", () => {
     expect(stats.week.map((d) => d.focusedMs)).toEqual([0, 40 * MIN, 0, 0, 0, 20 * MIN, 0]);
   });
 
-  it("marks weekdays that count toward the streak", () => {
+  it("marks qualifying weekdays and weekends", () => {
     const stats = computeStats(
       [session(MON), session(TUE, { focusedMs: QUALIFYING_MS - 1 }), session(SAT)],
       SUN,
     );
-    expect(stats.week.map((d) => d.qualified)).toEqual([true, false, false, false, false, false, false]);
+    expect(stats.week.map((d) => d.qualified)).toEqual([true, false, false, false, false, true, false]);
   });
 
   it("works across a month boundary", () => {
@@ -129,9 +137,59 @@ describe("streaks", () => {
     expect(stats.currentStreak).toBe(3);
   });
 
-  it("does not let weekend sessions extend a streak", () => {
+  it("counts each qualifying weekend day toward the streak", () => {
     const stats = computeStats([session(FRI), session(SAT), session(SUN)], SUN);
+    expect(stats.currentStreak).toBe(3);
+    expect(stats.bestStreak).toBe(3);
+  });
+
+  it("lets Sunday cover a missed Monday and continues on Tuesday", () => {
+    const sessions = [session(FRI), session(SUN)];
+    expect(computeStats(sessions, "2026-09-22").currentStreak).toBe(2);
+    const stats = computeStats([...sessions, session("2026-09-22")], "2026-09-22");
+    expect(stats.currentStreak).toBe(3);
+    expect(stats.bestStreak).toBe(3);
+    expect(stats.week[0]?.qualified).toBe(false); // A covered day isn't a study day.
+  });
+
+  it("lets two weekend days cover two missed weekdays, but not three", () => {
+    const sessions = [session(FRI), session(SAT), session(SUN)];
+    expect(computeStats(sessions, "2026-09-23").currentStreak).toBe(3);
+    expect(computeStats(sessions, "2026-09-24").currentStreak).toBe(0);
+    expect(computeStats(sessions, "2026-09-24").bestStreak).toBe(3);
+  });
+
+  it("uses weekend credit only when a weekday is actually missed", () => {
+    const sessions = [session(SUN), session(NEXT_MON)];
+    expect(computeStats(sessions, "2026-09-23").currentStreak).toBe(2);
+    expect(computeStats(sessions, "2026-09-24").currentStreak).toBe(0);
+  });
+
+  it("expires unused weekend credit at the next weekend", () => {
+    const sessions = [SUN, NEXT_MON, "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"].map((d) => session(d));
+    expect(computeStats(sessions, "2026-09-28").currentStreak).toBe(6);
+    expect(computeStats(sessions, "2026-09-29").currentStreak).toBe(0);
+    expect(computeStats(sessions, "2026-09-29").bestStreak).toBe(6);
+  });
+
+  it("requires 15 total weekend minutes and awards at most one credit per day", () => {
+    const short = session(SUN, { focusedMs: 7 * MIN });
+    expect(computeStats([session(FRI), short], "2026-09-22").currentStreak).toBe(0);
+    const sessions = [session(FRI), short, session(SUN, { focusedMs: 8 * MIN })];
+    expect(computeStats(sessions, "2026-09-22").currentStreak).toBe(2);
+    expect(computeStats(sessions, "2026-09-23").currentStreak).toBe(0);
+  });
+
+  it("starts a new streak on the weekend without repairing an earlier missed Friday", () => {
+    const stats = computeStats([session(THU), session(SUN)], SUN);
     expect(stats.currentStreak).toBe(1);
+    expect(stats.bestStreak).toBe(1);
+  });
+
+  it("ignores future study days when calculating streaks", () => {
+    const stats = computeStats([session(SUN)], FRI);
+    expect(stats.currentStreak).toBe(0);
+    expect(stats.bestStreak).toBe(0);
   });
 
   it("breaks on a missed weekday", () => {
@@ -154,12 +212,18 @@ describe("streaks", () => {
     expect(stats.currentStreak).toBe(2);
   });
 
-  it("requires a completed session of at least 15 focused minutes", () => {
+  it("qualifies a day with 15 minutes even when a session ends early", () => {
     const short = session(TUE, { focusedMs: QUALIFYING_MS - 1 });
     const abandoned = session(WED, { outcome: "abandoned", reason: "x" });
     expect(computeStats([session(MON), short], TUE).currentStreak).toBe(1);
-    expect(computeStats([session(MON), session(TUE), abandoned], WED).currentStreak).toBe(2);
+    expect(computeStats([session(MON), session(TUE), abandoned], WED).currentStreak).toBe(3);
     expect(computeStats([session(MON, { focusedMs: QUALIFYING_MS })], MON).currentStreak).toBe(1);
+  });
+
+  it("adds short sessions together for the daily goal", () => {
+    const sessions = [session(MON, { focusedMs: 8 * MIN }), session(MON, { focusedMs: 7 * MIN, outcome: "abandoned", reason: "done" })];
+    expect(computeStats(sessions, MON).currentStreak).toBe(1);
+    expect(computeStats(sessions, MON).week[0]?.qualified).toBe(true);
   });
 
   it("assigns a midnight-crossing session to its start localDate", () => {

@@ -59,7 +59,7 @@ export function WeekChart({ week, today }: { week: DayTotal[]; today: string }) 
             const showLabel = day.focusedMs > 0 && (isToday || day.localDate === bestDate);
             const summary = isFuture
               ? "not yet"
-              : `${formatDuration(day.focusedMs)} focused${day.qualified ? ", counts toward streak" : ""}`;
+              : `${formatDuration(day.focusedMs)} studied${day.qualified ? ", counts toward streak" : ""}`;
 
             return (
               <div
@@ -99,7 +99,7 @@ export function WeekChart({ week, today }: { week: DayTotal[]; today: string }) 
           <thead>
             <tr>
               <th scope="col">Day</th>
-              <th scope="col">Focused</th>
+              <th scope="col">Study time</th>
               <th scope="col">Streak day</th>
             </tr>
           </thead>

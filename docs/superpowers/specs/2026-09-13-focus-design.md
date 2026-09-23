@@ -1,6 +1,7 @@
 # Focus — design
 
-Status: approved in brainstorming, 2026-09-13. Supersedes the earlier `SPEC.md` v0.1.
+Status: historical design, 2026-09-13. See the root README for current controls,
+timing, scoring, and startup behavior (simplified 2026-09-22).
 
 ## Purpose
 
