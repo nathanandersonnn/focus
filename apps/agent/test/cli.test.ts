@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
     clearActive: vi.fn(),
   },
   sound: vi.fn(() => true),
+  checkIn: vi.fn(() => true),
+  idleMs: vi.fn(() => 0),
   kill: vi.fn(() => true),
   list: vi.fn(() => [{ pid: 123, name: "steam.exe" }]),
   spawn: vi.fn(() => ({ on: vi.fn(), unref: vi.fn() })),
@@ -33,6 +35,8 @@ vi.mock("../src/win32.js", () => ({
   listProcesses: mocks.list,
   killProcess: mocks.kill,
   playCompletionSound: mocks.sound,
+  playCheckInSound: mocks.checkIn,
+  msSinceLastInput: mocks.idleMs,
 }));
 vi.mock("../src/sync.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/sync.js")>(),
@@ -187,6 +191,38 @@ describe("CLI", () => {
     expect(console.error).not.toHaveBeenCalled();
     expect(mocks.store.enqueue).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "crashed", reason: "agent closed" }));
     expect(mocks.store.enqueue).toHaveBeenNthCalledWith(2, expect.objectContaining({ mode: "class", outcome: "completed" }));
+  });
+
+  it("checks in when idle, pauses without an answer, and resumes on input", async () => {
+    let lastInput = Date.now();
+    mocks.idleMs.mockImplementation(() => Date.now() - lastInput);
+    const startedAt = Date.now();
+    const running = main(["start"]);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(mocks.checkIn).toHaveBeenCalledTimes(1);
+    expect(process.stdout.write).toHaveBeenCalledWith(expect.stringContaining("Still studying?"));
+
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    lastInput = Date.now();
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    input.emit("data", "s");
+    expect(await running).toBe(0);
+
+    expect(mocks.store.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: "completed",
+      focusedMs: 5 * 60_000,
+      pauses: [{ from: new Date(startedAt).toISOString(), to: new Date(startedAt + 20 * 60_000).toISOString() }],
+    }));
+  });
+
+  it("never checks in during class, where the PC sits untouched", async () => {
+    mocks.idleMs.mockReturnValue(60 * 60_000);
+    const running = main(["class"]);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    input.emit("data", "s");
+    expect(await running).toBe(0);
+    expect(mocks.checkIn).not.toHaveBeenCalled();
+    expect(mocks.store.enqueue).toHaveBeenCalledWith(expect.objectContaining({ mode: "class", focusedMs: 20 * 60_000 }));
   });
 
   it("reports missing dashboard configuration without opening a browser", async () => {

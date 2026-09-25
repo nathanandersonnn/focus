@@ -13,7 +13,9 @@ export type SessionState = {
   startedAt: number;
   status: Status;
   focusedMs: number;
-  pauses: { from: number; to?: number }[];
+  // idle marks pauses that input ends on its own; manual and sleep pauses wait for p.
+  pauses: { from: number; to?: number; idle?: boolean }[];
+  idleCheckAt?: number;
   blocks: { app: string; at: number; killed: boolean }[];
   lastTickAt: number;
   endedAt?: number;
@@ -86,6 +88,49 @@ export function resume(state: SessionState, now: number): SessionState {
   const open = s.pauses.at(-1);
   if (open) open.to = s.lastTickAt;
   return { ...s, status: "running" };
+}
+
+export type IdleRules = { checkAfterMs: number; graceMs: number };
+export const IDLE_RULES: IdleRules = { checkAfterMs: 10 * 60_000, graceMs: 5 * 60_000 };
+export type IdleEvent = "check" | "answered" | "paused" | "resumed";
+
+// A computer cannot tell paper study from an empty room, so a long idle stretch asks instead of
+// pausing. Any mouse or keyboard input answers. With no answer, the pause starts at the last input.
+// Call after tick; the state's lastTickAt is taken as now.
+export function applyIdle(
+  state: SessionState,
+  lastInputAt: number,
+  rules: IdleRules = IDLE_RULES,
+): { state: SessionState; event?: IdleEvent } {
+  if (isEnded(state)) return { state };
+  const now = state.lastTickAt;
+  lastInputAt = Math.min(lastInputAt, now);
+  const open = state.pauses.at(-1);
+
+  if (state.status === "paused") {
+    if (open?.idle && open.to === undefined && lastInputAt > open.from) {
+      const pauses = state.pauses.map((p) => ({ ...p }));
+      pauses.at(-1)!.to = lastInputAt;
+      return { state: tick({ ...state, status: "running", pauses }, now), event: "resumed" };
+    }
+    return { state: state.idleCheckAt === undefined ? state : { ...state, idleCheckAt: undefined } };
+  }
+
+  if (state.idleCheckAt === undefined) {
+    if (now - lastInputAt < rules.checkAfterMs) return { state };
+    return { state: { ...state, idleCheckAt: now }, event: "check" };
+  }
+  if (lastInputAt > state.idleCheckAt) return { state: { ...state, idleCheckAt: undefined }, event: "answered" };
+  if (now - state.idleCheckAt < rules.graceMs) return { state };
+
+  const floor = Math.max(state.startedAt, open?.to ?? state.startedAt);
+  const paused: SessionState = {
+    ...state,
+    status: "paused",
+    idleCheckAt: undefined,
+    pauses: [...state.pauses.map((p) => ({ ...p })), { from: Math.max(lastInputAt, floor), idle: true }],
+  };
+  return { state: tick(paused, now), event: "paused" };
 }
 
 function plannedMsOf(state: SessionState): number {

@@ -31,7 +31,8 @@ export function renderLine(state: SessionState, mode: StudyMode): string {
       ? `${fmt(state.focusedMs)} studied`
       : `${fmt(state.plannedMin * 60_000 - state.focusedMs)} left`;
   const parts = [`  [ ${mode.name.toUpperCase()} ]  ${clock}`];
-  if (state.status === "paused") parts.push("PAUSED");
+  if (state.status === "paused") parts.push(state.pauses.at(-1)?.idle ? "PAUSED (idle, move the mouse)" : "PAUSED");
+  if (state.idleCheckAt !== undefined) parts.push("STILL STUDYING? move the mouse");
   parts.push(state.status === "paused" ? "p = resume" : "p = pause");
   if (!mode.earlyExit) parts.push("no early exit");
   else parts.push(state.plannedMin === null ? "s = finish" : "s = stop");
@@ -56,6 +57,7 @@ export function printIntro(mode: StudyMode, minutes: number | null, config: Conf
   if (!mode.completionSound) console.log("  Silent completion. Keep your computer awake to record class time.");
   console.log(`  Reading and thinking count. Press p for a break${mode.earlyExit ? "; s to end." : ". No early exit: finish for double points."}`);
   if (mode.blockApps) console.log("  Apps stay blocked while paused.");
+  if (mode.idleCheck) console.log("  Studying away from the PC? After 10 idle minutes you'll hear two beeps; move the mouse to keep counting.");
   console.log("");
 }
 

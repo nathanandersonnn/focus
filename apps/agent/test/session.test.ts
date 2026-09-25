@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Mode } from "@focus/core";
-import { abandon, finish, pause, resume, recordBlocks, recoverStale, startSession, tick, toSession, type SessionState } from "../src/session.js";
+import { abandon, applyIdle, finish, pause, resume, recordBlocks, recoverStale, startSession, tick, toSession, type IdleEvent, type SessionState } from "../src/session.js";
 
 const MIN = 60_000;
 const T0 = Date.parse("2026-09-14T10:00:00.000Z");
@@ -79,6 +79,67 @@ describe("breaks and interrupted timers", () => {
     const running = resume(stillPaused, T0 + 21 * MIN);
     expect(stillPaused.pauses).toEqual([{ from: T0 + 2 * MIN }]);
     expect(running.pauses).toEqual([{ from: T0 + 2 * MIN, to: T0 + 21 * MIN }]);
+  });
+});
+
+// Timer cadence with idle checks; a lastInputAt later than a tick counts as input at that tick.
+function away(state: SessionState, minutes: number, lastInputAt: number, events: IdleEvent[] = []): SessionState {
+  const until = state.lastTickAt + minutes * MIN;
+  for (let now = state.lastTickAt + 1000; now <= until; now += 1000) {
+    const result = applyIdle(tick(state, now), lastInputAt);
+    state = result.state;
+    if (result.event) events.push(result.event);
+  }
+  return state;
+}
+
+describe("idle check-ins", () => {
+  it("keeps counting study away from the PC when the check-in is answered", () => {
+    const events: IdleEvent[] = [];
+    let s = away(fresh(null), 12, T0, events);
+    expect(events).toEqual(["check"]);
+    expect(s).toMatchObject({ status: "running", focusedMs: 12 * MIN, idleCheckAt: T0 + 10 * MIN });
+
+    s = away(s, 1, T0 + 12 * MIN, events);
+    expect(events).toEqual(["check", "answered"]);
+    expect(s).toMatchObject({ status: "running", focusedMs: 13 * MIN, idleCheckAt: undefined, pauses: [] });
+  });
+
+  it("pauses from the last input when nobody answers, then resumes on input", () => {
+    const events: IdleEvent[] = [];
+    let s = away(fresh(null), 20, T0 + 3 * MIN, events);
+    expect(events).toEqual(["check", "paused"]);
+    expect(s).toMatchObject({ status: "paused", focusedMs: 3 * MIN, pauses: [{ from: T0 + 3 * MIN, idle: true }] });
+
+    const back = applyIdle(tick(s, T0 + 22 * MIN), T0 + 22 * MIN);
+    expect(back.event).toBe("resumed");
+    s = work(back.state, 3);
+    expect(s.focusedMs).toBe(6 * MIN);
+    expect(toSession(finish(s, s.lastTickAt)).pauses).toEqual([
+      { from: new Date(T0 + 3 * MIN).toISOString(), to: new Date(T0 + 22 * MIN).toISOString() },
+    ]);
+  });
+
+  it("leaves manual breaks paused when the mouse moves", () => {
+    const s = tick(pause(work(fresh(), 2), T0 + 2 * MIN), T0 + 10 * MIN);
+    const result = applyIdle(s, T0 + 9 * MIN);
+    expect(result.event).toBeUndefined();
+    expect(result.state.status).toBe("paused");
+  });
+
+  it("never backdates an idle pause into an earlier break", () => {
+    const events: IdleEvent[] = [];
+    let s = resume(tick(pause(work(fresh(null), 2), T0 + 2 * MIN), T0 + 30 * MIN), T0 + 30 * MIN);
+    s = away(s, 6, T0 + MIN, events);
+    expect(events).toEqual(["check", "paused"]);
+    expect(s.focusedMs).toBe(2 * MIN);
+    expect(s.pauses.at(-1)).toEqual({ from: T0 + 30 * MIN, idle: true });
+  });
+
+  it("drops a pending check-in when the session is paused", () => {
+    const s = away(fresh(null), 11, T0);
+    expect(s.idleCheckAt).toBe(T0 + 10 * MIN);
+    expect(applyIdle(pause(s, s.lastTickAt), T0).state.idleCheckAt).toBeUndefined();
   });
 });
 

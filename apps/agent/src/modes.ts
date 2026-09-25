@@ -6,6 +6,8 @@ export type StudyMode = {
   duration: "optional" | "required" | "none";
   blockApps: boolean;
   earlyExit: boolean;
+  // Idle check-ins; class is off because listening to a lecture leaves the PC untouched.
+  idleCheck: boolean;
   completionSound: boolean;
   openStartPage: boolean;
 };
@@ -18,6 +20,7 @@ const regular: StudyMode = {
   duration: "optional",
   blockApps: true,
   earlyExit: true,
+  idleCheck: true,
   completionSound: true,
   openStartPage: true,
 };
@@ -32,6 +35,7 @@ const modes: Record<string, StudyMode> = {
     duration: "none",
     blockApps: false,
     earlyExit: true,
+    idleCheck: false,
     completionSound: false,
     openStartPage: false,
   },
@@ -60,5 +64,8 @@ export const USAGE = `Usage:
   focus class             open-ended class time, silent with no app blocking
   focus sync              upload queued sessions
   focus dashboard         open the dashboard, signed in
+
+Away from the PC in regular or deep mode? After 10 idle minutes a check-in beeps;
+move the mouse within 5 minutes to keep counting.
 
 During any mode: p = pause/resume. s = end, except in deep mode. Reading and thinking count.`;

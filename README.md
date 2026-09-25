@@ -13,12 +13,17 @@ focus sync         Upload queued sessions
 
 In any mode, **p** pauses/resumes. **s** ends the session, except in deep mode:
 a deep session runs until its timer finishes, and **s** and Ctrl+C are ignored.
-Ending a timed regular session early asks for a short reason; Enter cancels. Reading, thinking, and paper
-work count without moving the mouse. Take breaks with **p**; in regular and deep
-modes, apps remain blocked while paused. After a timer gap longer than 30 seconds (such as sleep), the gap
-is excluded and the timer stays paused until you resume. This is a study timer,
-not an automatic attention detector: remember to pause when stepping away or
-locking the PC.
+Ending a timed regular session early asks for a short reason; Enter cancels. Take breaks
+with **p**; in regular and deep modes, apps remain blocked while paused. After a timer gap
+longer than 30 seconds (such as sleep), the gap is excluded and the timer stays paused
+until you resume.
+
+Reading, thinking, and paper work count without touching the PC. In regular and deep
+modes, 10 minutes without mouse or keyboard input plays two even beeps: a check-in.
+Move the mouse or press any key within 5 minutes and all of the time counts. With no
+answer, the session pauses, backdated to your last input, and resumes by itself the
+next time you touch the mouse or keyboard. Breaks you start with **p** still need **p**
+to end. Class mode never checks in, since a lecture leaves the PC untouched.
 
 Completed regular and deep sessions play a short, rising three-tone chime, including when you finish
 an open-ended session with **s**. Ending a timed session early stays silent.

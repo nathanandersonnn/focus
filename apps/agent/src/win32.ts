@@ -2,6 +2,7 @@ import koffi from "koffi";
 import { createHash } from "node:crypto";
 
 const kernel32 = koffi.load("kernel32.dll");
+const user32 = koffi.load("user32.dll");
 
 const HANDLE = koffi.pointer("HANDLE", koffi.opaque());
 
@@ -16,6 +17,11 @@ const PROCESSENTRY32W = koffi.struct("PROCESSENTRY32W", {
   pcPriClassBase: "int32",
   dwFlags: "uint32",
   szExeFile: koffi.array("char16_t", 260, "String"),
+});
+
+const LASTINPUTINFO = koffi.struct("LASTINPUTINFO", {
+  cbSize: "uint32",
+  dwTime: "uint32",
 });
 
 const CreateToolhelp32Snapshot = kernel32.func(
@@ -36,6 +42,8 @@ const CreateMutexW = kernel32.func("HANDLE __stdcall CreateMutexW(void *attribut
 const WaitForSingleObject = kernel32.func("uint32 __stdcall WaitForSingleObject(HANDLE handle, uint32 timeout)");
 const ReleaseMutex = kernel32.func("int __stdcall ReleaseMutex(HANDLE handle)");
 const Beep = kernel32.func("int __stdcall Beep(uint32 frequency, uint32 duration)");
+const GetTickCount = kernel32.func("uint32 __stdcall GetTickCount()");
+const GetLastInputInfo = user32.func("int __stdcall GetLastInputInfo(_Inout_ LASTINPUTINFO *plii)");
 
 const TH32CS_SNAPPROCESS = 0x2;
 const PROCESS_TERMINATE = 0x1;
@@ -50,6 +58,24 @@ export function playCompletionSound(): boolean {
   } catch {
     return false;
   }
+}
+
+// Two even tones, unlike the rising completion chime, so a check-in is recognizable from across the room.
+export function playCheckInSound(): boolean {
+  try {
+    return Beep(523, 200) !== 0 && Beep(523, 200) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+// Any mouse or keyboard input in this Windows session, not only keys typed into the terminal.
+// https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getlastinputinfo
+export function msSinceLastInput(): number {
+  const info = { cbSize: koffi.sizeof(LASTINPUTINFO), dwTime: 0 };
+  if (!GetLastInputInfo(info)) return 0;
+  // Both are 32-bit tick counts that wrap every ~49.7 days; unsigned subtraction handles the wrap.
+  return (GetTickCount() - info.dwTime) >>> 0;
 }
 
 // Windows releases ownership if the agent exits or is killed; no stale lock file.

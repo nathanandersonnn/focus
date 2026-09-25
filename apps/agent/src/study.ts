@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { sweep } from "./blocker.js";
 import { openInBrowser } from "./browser.js";
-import { abandon, finish, isEnded, pause, resume, recordBlocks, startSession, tick, toSession, type SessionState } from "./session.js";
+import { abandon, applyIdle, finish, IDLE_RULES, isEnded, pause, resume, recordBlocks, startSession, tick, toSession, type IdleEvent, type SessionState } from "./session.js";
 import type { Config, Store } from "./store.js";
 import type { StudyOptions, StudyMode } from "./modes.js";
 import { draw, log, printIntro, renderLine } from "./terminal.js";
-import { killProcess, listProcesses, playCompletionSound } from "./win32.js";
+import { killProcess, listProcesses, msSinceLastInput, playCheckInSound, playCompletionSound } from "./win32.js";
 
 const TICK_MS = 1000;
 const SAVE_EVERY_MS = 5000;
@@ -61,6 +61,11 @@ function runSession(store: Store, config: Config, initial: SessionState, mode: S
       if (wasRunning && state.status === "paused" && !prompting) {
         log("  Timer interrupted (sleep or a long delay). Paused; press p to resume.");
       }
+      if (mode.idleCheck) {
+        const idle = applyIdle(state, now - msSinceLastInput());
+        state = idle.state;
+        if (idle.event) announceIdle(idle.event);
+      }
 
       if (!prompting) {
         const stamp = new Date(now).toLocaleTimeString();
@@ -80,6 +85,18 @@ function runSession(store: Store, config: Config, initial: SessionState, mode: S
       }
       if (!prompting) draw(renderLine(state, mode));
     }, TICK_MS);
+
+    function announceIdle(event: IdleEvent) {
+      if (event === "check" && !playCheckInSound()) process.stdout.write("\u0007");
+      if (prompting) return;
+      const grace = IDLE_RULES.graceMs / 60_000;
+      log({
+        check: `  Still studying? Move the mouse or press a key within ${grace} minutes, or the session pauses.`,
+        answered: "  Still counting.",
+        paused: "  No answer, so the session paused from your last activity. Move the mouse to resume.",
+        resumed: "  Welcome back; resumed.",
+      }[event]);
+    }
 
     async function onKey(key: string) {
       if (prompting || isEnded(state)) return;
